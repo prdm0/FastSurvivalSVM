@@ -1,0 +1,30 @@
+Package: FastSurvivalSVM
+Type: Package
+Title: Kernel Survival Support Vector Machines via 'scikit-survival'
+Version: 0.0.1
+Authors@R: 
+    c(
+      person("Pedro Rafael", "Diniz Marinho",
+             email = "pedro.rafael.marinho@gmail.com",
+             role = c("aut", "cre"),
+             comment = c(ORCID = "")),
+      person("Agatha Sacramento", "Rodrigues",
+             email = "agatha.srodrigues@gmail.com",
+             role = "aut",
+             comment = c(ORCID = ""))
+    )
+Description: Provides an R interface to the FastKernelSurvivalSVM model from the 
+    Python 'scikit-survival' package. The package enables fitting Survival Support 
+    Vector Machines for right-censored outcomes using kernel methods. Users may 
+    employ native kernels from 'scikit-learn' or define custom kernel functions 
+    directly in R. Computation is delegated to the Python implementation via 
+    'reticulate', while the package exposes a clean R API for fitting, predicting, 
+    evaluating and summarizing survival SVM models.
+Depends:
+    R (>= 4.2.0)
+Imports:
+    reticulate
+Encoding: UTF-8
+LazyData: true
+License: GPL-3
+RoxygenNote: 7.3.3
