@@ -387,3 +387,94 @@ print.summary.fastsvm <- function(x, ...) {
   cat("======================================================================\n")
   invisible(x)
 }
+
+#' Extract sample-wise coefficients (alpha_i) from a fastsvm model
+#'
+#' This method returns the vector of coefficients \code{coef_} estimated by
+#' \code{sksurv.svm.FastKernelSurvivalSVM}. Each coefficient corresponds to
+#' the weight assigned to an individual training sample in the kernel-induced
+#' decision function.
+#'
+#' These coefficients play the same role as support vector weights in
+#' classical SVMs: samples with non-zero coefficients (within a tolerance)
+#' can be interpreted as "support-like" vectors.
+#'
+#' @param object An object of class \code{"fastsvm"} returned by
+#'   \code{fast_kernel_surv_svm_fit()}.
+#' @param ... Additional arguments (unused; included for S3 compatibility).
+#'
+#' @return A numeric vector of length \code{n}, containing the sample-wise
+#'   coefficients \code{alpha_i}.
+#'
+#' @examples
+#' if (reticulate::py_module_available("sksurv")) {
+#'   set.seed(1)
+#'   df <- data.frame(
+#'     time = rexp(50, 0.1),
+#'     status = rbinom(50, 1, 0.7),
+#'     x1 = rnorm(50),
+#'     x2 = rnorm(50)
+#'   )
+#'
+#'   fit <- fast_kernel_surv_svm_fit(
+#'     data = df,
+#'     time_col = "time",
+#'     delta_col = "status",
+#'     kernel = "rbf"
+#'   )
+#'
+#'   coef(fit)  # extract coefficients
+#' }
+#'
+#' @export
+coef.fastsvm <- function(object, ...) {
+  as.numeric(object$model$coef_)
+}
+
+#' Extract hyperparameters of a fastsvm model
+#'
+#' This function retrieves all hyperparameters used in the underlying Python
+#' model \code{sksurv.svm.FastKernelSurvivalSVM} by calling its
+#' \code{get_params()} method. The returned list contains all estimator
+#' arguments, including kernel specification, regularization strength,
+#' optimizer settings, and kernel parameters (e.g., \code{gamma}, \code{degree},
+#' \code{coef0}).
+#'
+#' This can be useful for reproducibility, model inspection, or when saving
+#' configurations for automated tuning workflows.
+#'
+#' @param object An object of class \code{"fastsvm"}.
+#' @param ... Additional arguments (unused; included for S3 method compatibility).
+#'
+#' @return A named list of hyperparameters corresponding to those returned by
+#'   the Python method \code{FastKernelSurvivalSVM.get_params()}.
+#'
+#' @examples
+#' if (reticulate::py_module_available("sksurv")) {
+#'   set.seed(123)
+#'
+#'   df <- data.frame(
+#'     time = rexp(40, 0.2),
+#'     status = rbinom(40, 1, 0.6),
+#'     x1 = rnorm(40),
+#'     x2 = rnorm(40)
+#'   )
+#'
+#'   fit <- fast_kernel_surv_svm_fit(
+#'     data = df,
+#'     time_col = "time",
+#'     delta_col = "status",
+#'     kernel = "rbf",
+#'     alpha = 0.5,
+#'     rank_ratio = 0.3
+#'   )
+#'
+#'   get_params_fastsvm(fit)
+#' }
+#'
+#' @export
+get_params_fastsvm <- function(object, ...) {
+  reticulate::py_to_r(object$model$get_params())
+}
+
+

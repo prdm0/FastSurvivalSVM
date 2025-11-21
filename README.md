@@ -208,7 +208,7 @@ Matching scikit-survival’s theoretical formulation.
 
 ## 📄 License
 
-MIT License. See `LICENSE` for details.
+MIT License. 
 
 ---
 
