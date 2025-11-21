@@ -58,6 +58,284 @@
 <div class="section level1">
 <div class="page-header"><h1 id="fastsurvivalsvm">FastSurvivalSVM<a class="anchor" aria-label="anchor" href="#fastsurvivalsvm"></a>
 </h1></div>
+<p>FastSurvivalSVM is an R package that provides a high-level interface to the Python implementation of <strong>FastKernelSurvivalSVM</strong>, available in the <code>scikit-survival</code> library. It enables R users to fit kernel-based survival Support Vector Machines for right-censored time-to-event data using a unified, user-friendly API.</p>
+<p>This package uses the <strong>reticulate</strong> framework to communicate with Python, automatically handles the necessary Python dependencies, and makes the powerful kernel survival SVM models from <code>scikit-survival</code> accessible directly from R workflows.</p>
+<hr>
+<div class="section level2">
+<h2 id="sparkles-features">✨ Features<a class="anchor" aria-label="anchor" href="#sparkles-features"></a>
+</h2>
+<ul>
+<li>Fit <strong>kernel survival SVMs</strong> using the Python function<br><a href="https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html" class="external-link"><code>sksurv.svm.FastKernelSurvivalSVM</code></a>
+</li>
+<li>Handles <strong>right-censored survival data</strong>
+</li>
+<li>Supports:
+<ul>
+<li>Built-in scikit-learn kernels (<code>"rbf"</code>, <code>"poly"</code>, <code>"sigmoid"</code>, etc.)</li>
+<li><strong>Custom kernels written in R</strong></li>
+</ul>
+</li>
+<li>Returns predictions, concordance index (C-index), and detailed summaries</li>
+<li>Automatically constructs the Python <code>Surv</code> structured array required by scikit-survival</li>
+<li>Minimal Python setup required; dependencies are managed automatically with <code><a href="https://rstudio.github.io/reticulate/reference/py_require.html" class="external-link">reticulate::py_require()</a></code>
+</li>
+</ul>
+<hr>
+</div>
+<div class="section level2">
+<h2 id="link-repositories">🔗 Repositories<a class="anchor" aria-label="anchor" href="#link-repositories"></a>
+</h2>
+<ul>
+<li>
+<strong>R package:</strong> <a href="https://github.com/prdm0/FastSurvivalSVM" class="external-link uri">https://github.com/prdm0/FastSurvivalSVM</a><br>
+</li>
+<li>
+<strong>Python backend (<code>scikit-survival</code>):</strong> <a href="https://scikit-survival.readthedocs.io/en/stable/index.html" class="external-link uri">https://scikit-survival.readthedocs.io/en/stable/index.html</a><br>
+</li>
+<li>
+<strong>Function wrapped by this package:</strong><br><a href="https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html" class="external-link uri">https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html</a>
+</li>
+</ul>
+<hr>
+</div>
+<div class="section level2">
+<h2 id="package-installation">📦 Installation<a class="anchor" aria-label="anchor" href="#package-installation"></a>
+</h2>
+<div class="section level3">
+<h3 id="id_1-install-the-r-package-development-version">1. Install the R package (development version)<a class="anchor" aria-label="anchor" href="#id_1-install-the-r-package-development-version"></a>
+</h3>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"prdm0/FastSurvivalSVM"</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="id_2-python-dependencies">2. Python dependencies<a class="anchor" aria-label="anchor" href="#id_2-python-dependencies"></a>
+</h3>
+<p>You do <strong>not</strong> need to install Python manually in most cases.</p>
+<p>The package automatically declares the following Python requirements:</p>
+<ul>
+<li><code>numpy</code></li>
+<li><code>pandas</code></li>
+<li><code>scikit-learn</code></li>
+<li><code>scikit-survival</code></li>
+</ul>
+<p>These will be installed in an <strong>ephemeral virtual environment</strong> the first time the package is used.</p>
+<p>If you prefer manual installation, configure Python before loading the package:</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://rstudio.github.io/reticulate/" class="external-link">reticulate</a></span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rstudio.github.io/reticulate/reference/use_python.html" class="external-link">use_python</a></span><span class="op">(</span><span class="st">"/usr/bin/python3"</span>, required <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
+<hr>
+</div>
+</div>
+<div class="section level2">
+<h2 id="rocket-example-fitting-a-survival-svm">🚀 Example: Fitting a Survival SVM<a class="anchor" aria-label="anchor" href="#rocket-example-fitting-a-survival-svm"></a>
+</h2>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va">FastSurvivalSVM</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">n</span> <span class="op">&lt;-</span> <span class="fl">100</span></span>
+<span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>  time   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Exponential.html" class="external-link">rexp</a></span><span class="op">(</span><span class="va">n</span>, rate <span class="op">=</span> <span class="fl">0.1</span><span class="op">)</span>,</span>
+<span>  status <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">1</span>, <span class="fl">0.7</span><span class="op">)</span>,  <span class="co"># 1 = event, 0 = censoring</span></span>
+<span>  x1     <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span>,</span>
+<span>  x2     <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Fit with RBF kernel (default)</span></span>
+<span><span class="va">fit_rbf</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/fast_kernel_surv_svm_fit.html">fast_kernel_surv_svm_fit</a></span><span class="op">(</span></span>
+<span>  data       <span class="op">=</span> <span class="va">df</span>,</span>
+<span>  time_col   <span class="op">=</span> <span class="st">"time"</span>,</span>
+<span>  delta_col  <span class="op">=</span> <span class="st">"status"</span>,</span>
+<span>  kernel     <span class="op">=</span> <span class="st">"rbf"</span>,</span>
+<span>  alpha      <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  rank_ratio <span class="op">=</span> <span class="fl">0</span>  <span class="co"># regression mode</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Predictions</span></span>
+<span><span class="va">preds</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/predict.html" class="external-link">predict</a></span><span class="op">(</span><span class="va">fit_rbf</span>, <span class="va">df</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">preds</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Concordance index</span></span>
+<span><span class="fu"><a href="reference/score_fastsvm.html">score_fastsvm</a></span><span class="op">(</span><span class="va">fit_rbf</span>, <span class="va">df</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Summary</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/summary.html" class="external-link">summary</a></span><span class="op">(</span><span class="va">fit_rbf</span><span class="op">)</span></span></code></pre></div>
+<hr>
+</div>
+<div class="section level2">
+<h2 id="art-example-using-a-custom-kernel-in-r">🎨 Example: Using a Custom Kernel in R<a class="anchor" aria-label="anchor" href="#art-example-using-a-custom-kernel-in-r"></a>
+</h2>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># Custom RBF kernel</span></span>
+<span><span class="va">rbf_custom</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span>, <span class="va">sigma</span> <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">d2</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="op">(</span><span class="va">x</span> <span class="op">-</span> <span class="va">z</span><span class="op">)</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="va">d2</span> <span class="op">/</span> <span class="op">(</span><span class="fl">2</span> <span class="op">*</span> <span class="va">sigma</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span></span>
+<span><span class="va">fit_custom</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/fast_kernel_surv_svm_fit.html">fast_kernel_surv_svm_fit</a></span><span class="op">(</span></span>
+<span>  data       <span class="op">=</span> <span class="va">df</span>,</span>
+<span>  time_col   <span class="op">=</span> <span class="st">"time"</span>,</span>
+<span>  delta_col  <span class="op">=</span> <span class="st">"status"</span>,</span>
+<span>  kernel     <span class="op">=</span> <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="fu">rbf_custom</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span>,</span>
+<span>  alpha      <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  rank_ratio <span class="op">=</span> <span class="fl">0</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/summary.html" class="external-link">summary</a></span><span class="op">(</span><span class="va">fit_custom</span><span class="op">)</span></span></code></pre></div>
+<hr>
+</div>
+<div class="section level2">
+<h2 id="blue_book-model-details">📘 Model Details<a class="anchor" aria-label="anchor" href="#blue_book-model-details"></a>
+</h2>
+<p>The underlying Python estimator implements the kernel survival SVM described in:</p>
+<blockquote>
+<p><strong>Pölsterl, S., Navab, N., Katouzian, A. (2016).</strong><br><em>An Efficient Training Algorithm for Kernel Survival Support Vector Machines</em>.<br>
+4th Workshop on Machine Learning in Life Sciences.<br>
+arXiv:1611.07054</p>
+</blockquote>
+<div class="section level3">
+<h3 id="supported-kernel-types">Supported Kernel Types<a class="anchor" aria-label="anchor" href="#supported-kernel-types"></a>
+</h3>
+<p>You may pass:</p>
+<table class="table">
+<thead><tr>
+<th>Type</th>
+<th>Example</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>String</td>
+<td><code>"rbf"</code></td>
+<td>scikit-learn kernel</td>
+</tr>
+<tr>
+<td>R function</td>
+<td><code>function(x,z) ...</code></td>
+<td>Must return scalar kernel value</td>
+</tr>
+<tr>
+<td><code>"precomputed"</code></td>
+<td>custom matrix</td>
+<td>Kernel matrix supplied as <code>X</code>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level3">
+<h3 id="prediction-types">Prediction Types<a class="anchor" aria-label="anchor" href="#prediction-types"></a>
+</h3>
+<ul>
+<li>If <code>rank_ratio = 1</code>: <strong>risk scores</strong> (higher = higher risk)</li>
+<li>If <code>rank_ratio &lt; 1</code>: <strong>transformed survival times</strong> (higher = longer survival)</li>
+</ul>
+<hr>
+</div>
+</div>
+<div class="section level2">
+<h2 id="bar_chart-methods-provided">📊 Methods Provided<a class="anchor" aria-label="anchor" href="#bar_chart-methods-provided"></a>
+</h2>
+<div class="section level3">
+<h3 id="fast_kernel_surv_svm_fit">
+<code>fast_kernel_surv_svm_fit()</code><a class="anchor" aria-label="anchor" href="#fast_kernel_surv_svm_fit"></a>
+</h3>
+<p>Fit the model.</p>
+</div>
+<div class="section level3">
+<h3 id="predictfastsvm">
+<code>predict.fastsvm()</code><a class="anchor" aria-label="anchor" href="#predictfastsvm"></a>
+</h3>
+<p>Predict risk scores or transformed survival times.</p>
+</div>
+<div class="section level3">
+<h3 id="score_fastsvm">
+<code>score_fastsvm()</code><a class="anchor" aria-label="anchor" href="#score_fastsvm"></a>
+</h3>
+<p>Compute C-index.</p>
+</div>
+<div class="section level3">
+<h3 id="summaryfastsvm">
+<code>summary.fastsvm()</code><a class="anchor" aria-label="anchor" href="#summaryfastsvm"></a>
+</h3>
+<p>Detailed model summary including: - Coefficients - Number of support vectors - Kernel type - Hyperparameters - Optimization iterations</p>
+</div>
+<div class="section level3">
+<h3 id="printfastsvm">
+<code>print.fastsvm()</code><a class="anchor" aria-label="anchor" href="#printfastsvm"></a>
+</h3>
+<p>Compact printing.</p>
+<hr>
+</div>
+</div>
+<div class="section level2">
+<h2 id="gear-internal-mechanics">⚙️ Internal Mechanics<a class="anchor" aria-label="anchor" href="#gear-internal-mechanics"></a>
+</h2>
+<div class="section level3">
+<h3 id="python-bridge">Python Bridge<a class="anchor" aria-label="anchor" href="#python-bridge"></a>
+</h3>
+<p>The package internally creates:</p>
+<ul>
+<li>A Python callable kernel (bridging R → Python)</li>
+<li>A <code>Surv</code> structured array using:</li>
+</ul>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a>sksurv.util.Surv.from_arrays(event, time)</span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="why-only-right-censoring">Why only right censoring?<a class="anchor" aria-label="anchor" href="#why-only-right-censoring"></a>
+</h3>
+<p>Because FastKernelSurvivalSVM is explicitly designed for:</p>
+<ul>
+<li><strong>Right-censored data</strong></li>
+<li>No interval or left censoring</li>
+<li>No competing risks</li>
+</ul>
+<p>Matching scikit-survival’s theoretical formulation.</p>
+<hr>
+</div>
+</div>
+<div class="section level2">
+<h2 id="man_technologist-authors">👨‍💻 Authors<a class="anchor" aria-label="anchor" href="#man_technologist-authors"></a>
+</h2>
+<ul>
+<li><p><strong>Pedro Rafael Diniz Marinho</strong><br><em>Author &amp; Maintainer</em><br>
+Email: <a href="mailto:pedro.rafael.marinho@gmail.com" class="email">pedro.rafael.marinho@gmail.com</a></p></li>
+<li><p><strong>Agatha Sacramento Rodrigues</strong><br><em>Author</em><br>
+Email: <a href="mailto:agatha.srodrigues@gmail.com" class="email">agatha.srodrigues@gmail.com</a></p></li>
+</ul>
+<hr>
+</div>
+<div class="section level2">
+<h2 id="page_facing_up-license">📄 License<a class="anchor" aria-label="anchor" href="#page_facing_up-license"></a>
+</h2>
+<p>MIT License. See <code>LICENSE</code> for details.</p>
+<hr>
+</div>
+<div class="section level2">
+<h2 id="raised_hands-acknowledgements">🙌 Acknowledgements<a class="anchor" aria-label="anchor" href="#raised_hands-acknowledgements"></a>
+</h2>
+<p>This package is a high-level R wrapper inspired by the work of:</p>
+<ul>
+<li>Sebastian Pölsterl and contributors to <strong>scikit-survival</strong>
+</li>
+<li>The <strong>reticulate</strong> project (RStudio / Posit)</li>
+<li>The broader survival analysis community</li>
+</ul>
+<hr>
+<p>If you want, I can also generate:</p>
+<ul>
+<li>
+<strong>Hex sticker</strong><br>
+</li>
+<li>
+<strong>CRAN-style pkgdown website</strong><br>
+</li>
+<li>
+<strong>Vignette demonstrating real-world usage</strong><br>
+</li>
+<li><strong>Simulation study comparing kernels</strong></li>
+</ul>
+</div>
 </div>
   </div>
 
