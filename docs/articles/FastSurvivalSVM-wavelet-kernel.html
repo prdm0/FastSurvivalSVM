@@ -110,26 +110,56 @@ hyperparameters</li>
 <h2 id="data-example">Data Example<a class="anchor" aria-label="anchor" href="#data-example"></a>
 </h2>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va">FastSurvivalSVM</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="co"># remotes::install_github("prdm0/FastSurvivalSVM", force = T)</span></span>
+<span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va">FastSurvivalSVM</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">data_generation</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">n</span>, <span class="va">prop_cen</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="co"># 3 covariaveis</span></span>
+<span>    <span class="va">x1</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">1</span>, <span class="fl">1</span><span class="op">)</span></span>
+<span>    <span class="va">x2</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">2</span>, <span class="fl">2</span><span class="op">)</span></span>
+<span>    <span class="va">x3</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Exponential.html" class="external-link">rexp</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
+<span>    <span class="co"># parâmetros da Weibull</span></span>
+<span>    <span class="va">xbeta</span> <span class="op">&lt;-</span> <span class="va">x1</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/MathFun.html" class="external-link">abs</a></span><span class="op">(</span><span class="va">x2</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span> <span class="fl">2</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">sin</a></span><span class="op">(</span><span class="va">x3</span> <span class="op">-</span> <span class="va">x2</span><span class="op">)</span><span class="op">^</span><span class="fl">2</span></span>
+<span>    <span class="va">shape</span> <span class="op">&lt;-</span> <span class="fl">2</span></span>
+<span>    <span class="va">scale</span> <span class="op">&lt;-</span> <span class="fl">5</span></span>
+<span>    <span class="co"># tempos verdadeiros (sem censura)</span></span>
+<span>    <span class="va">u</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">0</span>, <span class="fl">1</span><span class="op">)</span></span>
+<span>    <span class="va">time_t</span> <span class="op">&lt;-</span> <span class="op">(</span><span class="op">(</span><span class="op">-</span><span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log</a></span><span class="op">(</span><span class="fl">1</span> <span class="op">-</span> <span class="va">u</span><span class="op">)</span><span class="op">)</span><span class="op">^</span><span class="op">(</span><span class="fl">1</span> <span class="op">/</span> <span class="va">shape</span><span class="op">)</span><span class="op">)</span> <span class="op">*</span> <span class="va">scale</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="va">xbeta</span><span class="op">)</span></span>
+<span>    <span class="co"># selecionar quem será censurado e gerar os tempos</span></span>
+<span>    <span class="va">ind_cens</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="va">n</span>, <span class="va">n</span> <span class="op">*</span> <span class="va">prop_cen</span>, replace <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span>    <span class="va">time_gerado</span> <span class="op">&lt;-</span> <span class="va">time_t</span></span>
+<span>    <span class="va">time_gerado</span><span class="op">[</span><span class="va">ind_cens</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span></span>
+<span>        <span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">ind_cens</span><span class="op">)</span>,</span>
+<span>        <span class="fu"><a href="https://rdrr.io/r/base/Extremes.html" class="external-link">min</a></span><span class="op">(</span><span class="va">time_t</span><span class="op">)</span>,</span>
+<span>        <span class="va">time_t</span><span class="op">[</span><span class="va">ind_cens</span><span class="op">]</span></span>
+<span>    <span class="op">)</span></span>
+<span>    <span class="co"># criando a indicadora de falha</span></span>
+<span>    <span class="va">cens</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/rep.html" class="external-link">rep</a></span><span class="op">(</span><span class="fl">1</span>, <span class="va">n</span><span class="op">)</span></span>
+<span>    <span class="va">cens</span><span class="op">[</span><span class="va">ind_cens</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fl">0</span></span>
+<span></span>
+<span>    <span class="va">dados_g</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>        tempo <span class="op">=</span> <span class="va">time_gerado</span>,</span>
+<span>        cens <span class="op">=</span> <span class="va">cens</span>,</span>
+<span>        x1 <span class="op">=</span> <span class="va">x1</span>,</span>
+<span>        x2 <span class="op">=</span> <span class="va">x2</span>,</span>
+<span>        x3 <span class="op">=</span> <span class="va">x3</span></span>
+<span>    <span class="op">)</span></span>
+<span>    <span class="kw"><a href="https://rdrr.io/r/base/function.html" class="external-link">return</a></span><span class="op">(</span><span class="va">dados_g</span><span class="op">)</span></span>
+<span><span class="op">}</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">123</span><span class="op">)</span></span>
-<span><span class="va">n</span> <span class="op">&lt;-</span> <span class="fl">150</span></span>
-<span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
-<span>  time   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Exponential.html" class="external-link">rexp</a></span><span class="op">(</span><span class="va">n</span>, rate <span class="op">=</span> <span class="fl">0.1</span><span class="op">)</span>,</span>
-<span>  status <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">1</span>, <span class="fl">0.7</span><span class="op">)</span>,</span>
-<span>  x1     <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span>,</span>
-<span>  x2     <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span>,</span>
-<span>  x3     <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu">data_generation</span><span class="op">(</span>n <span class="op">=</span> <span class="fl">300L</span>, prop_cen <span class="op">=</span> <span class="fl">0.1</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">df</span><span class="op">)</span></span>
-<span><span class="co">#&gt;         time status         x1         x2          x3</span></span>
-<span><span class="co">#&gt; 1  8.4345726      0 -1.2755434 -1.3029196 -0.27541490</span></span>
-<span><span class="co">#&gt; 2  5.7661027      0  2.3754645 -0.3698112 -1.23280604</span></span>
-<span><span class="co">#&gt; 3 13.2905487      0 -1.0935897 -0.6429371  0.23750358</span></span>
-<span><span class="co">#&gt; 4  0.3157736      1  0.1924416  1.0911635  1.05125929</span></span>
-<span><span class="co">#&gt; 5  0.5621098      1 -0.1261604  0.3365950 -0.05545795</span></span>
-<span><span class="co">#&gt; 6  3.1650122      1 -1.3884321 -0.3148323 -0.53767687</span></span></code></pre></div>
+<span><span class="co">#&gt;         tempo cens        x1         x2         x3</span></span>
+<span><span class="co">#&gt; 1   1.4801101    1 0.4395244  0.5695156 0.33901239</span></span>
+<span><span class="co">#&gt; 2   2.3390461    1 0.7698225  0.4946221 0.43618362</span></span>
+<span><span class="co">#&gt; 3 788.5807128    1 2.5587083  0.1229226 0.73802924</span></span>
+<span><span class="co">#&gt; 4  17.1329416    1 1.0705084 -0.1050266 0.57069724</span></span>
+<span><span class="co">#&gt; 5   1.6826516    1 1.1292877  1.1256809 0.08437658</span></span>
+<span><span class="co">#&gt; 6   0.0492852    1 2.7150650  2.6623583 1.35933656</span></span></code></pre></div>
 <hr>
 </div>
 <div class="section level2">
@@ -183,8 +213,8 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">fit_wavelet</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/fast_kernel_surv_svm_fit.html">fast_kernel_surv_svm_fit</a></span><span class="op">(</span></span>
 <span>  data       <span class="op">=</span> <span class="va">df</span>,</span>
-<span>  time_col   <span class="op">=</span> <span class="st">"time"</span>,</span>
-<span>  delta_col  <span class="op">=</span> <span class="st">"status"</span>,</span>
+<span>  time_col   <span class="op">=</span> <span class="st">"tempo"</span>,</span>
+<span>  delta_col  <span class="op">=</span> <span class="st">"cens"</span>,</span>
 <span>  kernel     <span class="op">=</span> <span class="fu">make_wavelet_kernel</span><span class="op">(</span>A <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span>,</span>
 <span>  alpha      <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>  rank_ratio <span class="op">=</span> <span class="fl">0</span>,</span>
@@ -198,7 +228,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">preds</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/predict.html" class="external-link">predict</a></span><span class="op">(</span><span class="va">fit_wavelet</span>, <span class="va">df</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">preds</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] 2.8245516 2.4168050 3.5571159 0.4524733 1.6170255 1.9362877</span></span></code></pre></div>
+<span><span class="co">#&gt; [1]  1.4810330  1.6302696 49.1482327  5.0829020  1.1056405  0.1682349</span></span></code></pre></div>
 <hr>
 </div>
 <div class="section level2">
@@ -206,7 +236,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 </h2>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/score_fastsvm.html">score_fastsvm</a></span><span class="op">(</span><span class="va">fit_wavelet</span>, <span class="va">df</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] 0.8694343</span></span></code></pre></div>
+<span><span class="co">#&gt; [1] 0.9372507</span></span></code></pre></div>
 <hr>
 </div>
 <div class="section level2">
@@ -218,7 +248,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <span><span class="co">#&gt; ======================================================================</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; == Data ==</span></span>
-<span><span class="co">#&gt; - n (observations) : 150</span></span>
+<span><span class="co">#&gt; - n (observations) : 300</span></span>
 <span><span class="co">#&gt; - p (covariates)   : 3</span></span>
 <span><span class="co">#&gt; - Covariates       :  x1, x2, x3 </span></span>
 <span><span class="co">#&gt; </span></span>
@@ -229,10 +259,10 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <span><span class="co">#&gt; - fit_intercept    : FALSE</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; == Estimated parameters (coef_ = sample-wise weights alpha_i) ==</span></span>
-<span><span class="co">#&gt; - Number of support-like vectors (|alpha_i| &gt; 1e-8): 147</span></span>
+<span><span class="co">#&gt; - Number of support-like vectors (|alpha_i| &gt; 1e-8): 282</span></span>
 <span><span class="co">#&gt; - Summary of alpha_i (coef_):</span></span>
-<span><span class="co">#&gt;    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. </span></span>
-<span><span class="co">#&gt; -1.4398  0.5470  1.0120  0.9033  1.3526  2.1734 </span></span>
+<span><span class="co">#&gt;     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. </span></span>
+<span><span class="co">#&gt; -2.15467 -0.59048  0.00000 -0.04655  0.42036  4.91534 </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; - Number of optimization iterations: 14</span></span>
 <span><span class="co">#&gt; ======================================================================</span></span></code></pre></div>
@@ -243,36 +273,66 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 </h2>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef</a></span><span class="op">(</span><span class="va">fit_wavelet</span><span class="op">)</span></span>
-<span><span class="co">#&gt;   [1]  1.093989e+00  8.695500e-01  1.318103e+00 -3.597034e-01 -1.056646e+00</span></span>
-<span><span class="co">#&gt;   [6]  4.913843e-01  7.622090e-01 -7.750435e-01  1.961033e+00 -7.009787e-01</span></span>
-<span><span class="co">#&gt;  [11]  1.073007e+00  8.726946e-01  4.270772e-01  4.347051e-01 -1.163549e-08</span></span>
-<span><span class="co">#&gt;  [16]  1.800259e+00  1.260060e+00  1.212410e+00  8.880400e-01  1.984142e+00</span></span>
-<span><span class="co">#&gt;  [21]  1.091296e+00  1.128608e+00  1.527517e+00  1.700890e+00  1.062449e+00</span></span>
-<span><span class="co">#&gt;  [26]  1.379233e+00  1.353437e+00  1.354914e+00 -4.138134e-10  7.718668e-01</span></span>
-<span><span class="co">#&gt;  [31]  1.297988e+00  8.356721e-01  5.798244e-02  1.545971e+00  1.563969e+00</span></span>
-<span><span class="co">#&gt;  [36]  8.211223e-01  7.512923e-01  1.246341e+00  6.936737e-01  1.455949e+00</span></span>
-<span><span class="co">#&gt;  [41]  7.177186e-01  2.079152e+00  8.941933e-01  3.385482e-01  8.344620e-01</span></span>
-<span><span class="co">#&gt;  [46]  1.546028e+00  1.638100e+00  3.640046e-01  1.378739e+00  1.291369e+00</span></span>
-<span><span class="co">#&gt;  [51]  1.228768e-01  5.454638e-01  1.379002e+00  5.735696e-01  1.116515e+00</span></span>
-<span><span class="co">#&gt;  [56]  1.121146e+00  9.928334e-01  1.771732e+00  1.111039e+00  1.390010e+00</span></span>
-<span><span class="co">#&gt;  [61]  1.128962e+00  4.030918e-01  1.477194e+00 -4.172291e-01  2.093712e-01</span></span>
-<span><span class="co">#&gt;  [66] -7.443747e-10  6.418279e-01  2.905991e-01  1.428998e+00  1.436280e+00</span></span>
-<span><span class="co">#&gt;  [71]  1.460759e+00  1.468066e+00  1.467378e+00  1.359671e+00  6.634573e-01</span></span>
-<span><span class="co">#&gt;  [76]  3.462927e-01  1.082314e+00 -4.301961e-01  5.779579e-01  1.013095e+00</span></span>
-<span><span class="co">#&gt;  [81]  7.452807e-01  4.494880e-01  1.810358e+00  1.351026e+00  1.145669e+00</span></span>
-<span><span class="co">#&gt;  [86]  1.262961e+00  1.336364e+00  8.905273e-01  1.252721e+00  1.366440e+00</span></span>
-<span><span class="co">#&gt;  [91] -1.439768e+00  1.168706e+00  2.920511e-01  1.173902e+00  1.201574e+00</span></span>
-<span><span class="co">#&gt;  [96]  1.144125e-01 -6.245046e-02  1.389327e+00  5.305485e-01  1.430366e+00</span></span>
-<span><span class="co">#&gt; [101]  8.497157e-01  5.931882e-01  1.386311e+00 -1.538477e-01  6.138541e-01</span></span>
-<span><span class="co">#&gt; [106]  1.028618e+00  8.547293e-01  1.009564e+00  3.096752e-01  1.190995e+00</span></span>
-<span><span class="co">#&gt; [111] -1.213515e-02  1.071567e+00  3.890947e-01  1.262532e+00  5.517177e-01</span></span>
-<span><span class="co">#&gt; [116]  1.171044e+00  2.733165e-01  1.495553e+00 -1.261529e-09  1.271021e+00</span></span>
-<span><span class="co">#&gt; [121]  5.088926e-01  1.353074e+00  2.091840e+00  1.010896e+00  1.035222e+00</span></span>
-<span><span class="co">#&gt; [126]  1.793858e+00  1.148983e+00  9.703164e-01  1.293879e+00  8.774810e-01</span></span>
-<span><span class="co">#&gt; [131]  3.430829e-01  6.654458e-01  8.386721e-01  1.949445e+00  1.244467e+00</span></span>
-<span><span class="co">#&gt; [136]  1.144010e+00  6.092781e-01  5.340502e-02  2.173385e+00  1.602875e+00</span></span>
-<span><span class="co">#&gt; [141]  8.649018e-01  1.304380e+00  6.892199e-01  1.483149e-01  5.970282e-01</span></span>
-<span><span class="co">#&gt; [146]  1.444726e+00  3.597286e-01  9.950846e-01  8.958286e-01  9.040784e-01</span></span>
+<span><span class="co">#&gt;   [1] -6.233144e-04  3.609978e-01  2.775394e+00  1.215121e+00  4.199461e-01</span></span>
+<span><span class="co">#&gt;   [6] -1.227737e+00 -5.638542e-01  3.078096e-01 -2.115853e-01 -2.278152e-01</span></span>
+<span><span class="co">#&gt;  [11] -2.154668e+00 -7.089458e-01 -7.224176e-01 -6.851592e-09  6.055903e-01</span></span>
+<span><span class="co">#&gt;  [16] -1.355803e+00  1.792222e-02 -2.114463e-02 -1.519555e+00  7.040990e-01</span></span>
+<span><span class="co">#&gt;  [21]  3.833180e-01 -8.530300e-01  4.653891e-01  5.520609e-01  2.729965e-01</span></span>
+<span><span class="co">#&gt;  [26]  9.166161e-01  2.915477e-01  3.640637e-01  4.959900e-01  5.475223e-08</span></span>
+<span><span class="co">#&gt;  [31] -3.110585e-01 -5.216327e-14 -8.482046e-01 -2.149278e+00 -1.882695e+00</span></span>
+<span><span class="co">#&gt;  [36] -6.689382e-01  5.496115e-01 -2.853692e-02 -8.726949e-01  4.274951e-01</span></span>
+<span><span class="co">#&gt;  [41]  9.066845e-01  3.389110e-01  1.332373e-01 -6.982459e-01 -4.054441e-01</span></span>
+<span><span class="co">#&gt;  [46] -2.033919e-09 -3.716729e-01  7.712604e-01  2.630931e+00  3.291047e-01</span></span>
+<span><span class="co">#&gt;  [51]  7.159212e-09 -2.081302e-09  5.902789e-01 -1.412635e+00  1.555222e+00</span></span>
+<span><span class="co">#&gt;  [56] -1.092778e+00  5.820107e-01 -7.676696e-01  4.374217e-01 -1.191871e+00</span></span>
+<span><span class="co">#&gt;  [61] -5.676285e-01  2.952760e-02 -3.535155e-01  6.524381e-01  5.268626e-01</span></span>
+<span><span class="co">#&gt;  [66] -1.369107e-01 -1.643894e+00  1.981461e+00 -1.533760e+00  6.217261e-02</span></span>
+<span><span class="co">#&gt;  [71] -3.073727e-02  4.845436e-01  6.488701e-02 -3.043737e-01 -8.514972e-01</span></span>
+<span><span class="co">#&gt;  [76]  1.569692e+00  1.510062e+00  1.032579e-01 -3.817369e-01 -6.681495e-01</span></span>
+<span><span class="co">#&gt;  [81] -1.591361e+00 -4.057348e-01  3.169548e-01  1.095955e+00 -2.458395e-01</span></span>
+<span><span class="co">#&gt;  [86] -1.634218e+00 -6.432167e-01  1.748872e+00  2.605258e-01 -1.330300e+00</span></span>
+<span><span class="co">#&gt;  [91]  1.020114e+00 -2.466145e-01  1.869565e-08  7.982522e-01  1.136862e+00</span></span>
+<span><span class="co">#&gt;  [96] -1.719244e-01  2.260583e+00 -1.021559e+00  7.293904e-01  2.565817e-01</span></span>
+<span><span class="co">#&gt; [101]  7.528758e-01  5.833417e-01  9.197425e-01  2.348460e-03  1.717626e-01</span></span>
+<span><span class="co">#&gt; [106]  5.226837e-01  4.618786e-01  1.128520e+00 -8.458267e-01 -3.144886e-02</span></span>
+<span><span class="co">#&gt; [111] -6.178650e-01 -1.031209e+00  2.925325e-09  3.650784e-01  6.321126e-01</span></span>
+<span><span class="co">#&gt; [116] -9.584232e-01  2.608585e-01  3.362230e-01 -2.261489e-01  4.172555e-01</span></span>
+<span><span class="co">#&gt; [121] -9.273181e-01  7.952938e-01 -5.458255e-01 -1.839338e+00  5.293850e-01</span></span>
+<span><span class="co">#&gt; [126]  7.128070e-01 -3.314013e-11  3.718977e-01 -2.996378e-02  1.333050e-02</span></span>
+<span><span class="co">#&gt; [131] -9.101121e-01 -2.365092e-01 -2.843419e-01  1.157042e+00 -8.045669e-01</span></span>
+<span><span class="co">#&gt; [136]  5.826719e-01  4.215961e-01 -3.197180e-09 -9.161763e-01  3.479752e-09</span></span>
+<span><span class="co">#&gt; [141]  6.538703e-01 -1.100509e-01 -2.410317e-01  2.585112e-01  4.560266e-01</span></span>
+<span><span class="co">#&gt; [146]  9.591079e-02  3.071678e-01  8.018663e-02 -3.570017e-01  2.734949e-09</span></span>
+<span><span class="co">#&gt; [151] -1.568386e+00 -1.054048e+00  4.188202e-01  6.771487e-01 -5.407345e-01</span></span>
+<span><span class="co">#&gt; [156] -2.128502e-01 -5.353301e-09 -3.510319e-01 -1.849091e-01 -3.707249e-01</span></span>
+<span><span class="co">#&gt; [161] -5.262415e-01  3.742449e-01 -1.711958e-02 -7.809766e-01  9.693243e-01</span></span>
+<span><span class="co">#&gt; [166] -7.914707e-01 -8.233684e-01 -1.435444e-01 -5.844298e-01 -9.487616e-01</span></span>
+<span><span class="co">#&gt; [171] -1.046526e+00  5.330308e-08 -6.308074e-02 -2.713349e-10  5.874533e-01</span></span>
+<span><span class="co">#&gt; [176] -3.794037e-01 -8.242361e-01 -2.323164e-01 -1.283673e-01 -3.162067e-01</span></span>
+<span><span class="co">#&gt; [181]  9.599465e-01 -1.222172e-08 -3.626619e-09  4.865868e-01 -6.600457e-01</span></span>
+<span><span class="co">#&gt; [186]  6.984203e-02 -5.058493e-01 -3.814621e-02  2.441497e-09  3.320593e-01</span></span>
+<span><span class="co">#&gt; [191] -7.975667e-11 -1.009332e+00  2.868977e-02  9.584368e-01 -4.690426e-01</span></span>
+<span><span class="co">#&gt; [196]  5.907207e-01 -9.874087e-01  3.122165e-08 -1.123369e-09  1.503473e-01</span></span>
+<span><span class="co">#&gt; [201]  9.804290e-01  4.915337e+00 -1.086566e-01 -5.517371e-03 -6.336575e-01</span></span>
+<span><span class="co">#&gt; [206] -9.860670e-01  4.703311e-01  9.699259e-02 -1.548804e+00  1.018082e-01</span></span>
+<span><span class="co">#&gt; [211] -3.580406e-01 -1.948879e-02 -9.687468e-01  1.994581e-01  2.087723e-01</span></span>
+<span><span class="co">#&gt; [216]  5.799069e-01 -1.061311e+00 -3.727635e-03  1.049061e-02  4.198502e-01</span></span>
+<span><span class="co">#&gt; [221]  1.677435e-01 -1.448430e+00  2.621671e-09 -7.516267e-01 -6.320593e-01</span></span>
+<span><span class="co">#&gt; [226] -2.367839e-01  6.540102e-01 -6.484377e-01  1.288658e-01  9.281113e-01</span></span>
+<span><span class="co">#&gt; [231] -1.770072e+00  2.466570e-08  6.352954e-01 -1.033912e+00 -3.011960e-01</span></span>
+<span><span class="co">#&gt; [236]  3.076820e-01 -5.120044e-01  2.156879e-01  6.478291e-01  1.935244e-02</span></span>
+<span><span class="co">#&gt; [241]  9.421148e-01  5.499636e-08 -1.605669e+00 -7.004130e-02 -3.880437e-02</span></span>
+<span><span class="co">#&gt; [246] -1.582391e+00  1.335099e+00  9.279318e-01  6.343757e-04  1.175122e+00</span></span>
+<span><span class="co">#&gt; [251]  1.228740e-01  3.084952e-01 -1.479807e-01 -2.377368e-02 -1.434106e-09</span></span>
+<span><span class="co">#&gt; [256] -1.141565e-01 -1.571912e+00  1.013643e+00 -3.543714e-01  4.445860e-01</span></span>
+<span><span class="co">#&gt; [261]  8.818369e-01 -1.284040e-01  7.618414e-01 -1.645331e+00  2.407406e+00</span></span>
+<span><span class="co">#&gt; [266] -8.093383e-01  1.907745e-08  1.394743e+00 -3.967658e-01 -4.267168e-01</span></span>
+<span><span class="co">#&gt; [271] -9.746481e-01 -4.713178e-01  1.460025e+00  1.659757e-01 -6.086360e-01</span></span>
+<span><span class="co">#&gt; [276] -5.103246e-02 -1.091869e+00 -2.038737e-01 -9.652461e-02 -2.837721e-01</span></span>
+<span><span class="co">#&gt; [281] -3.884721e-01 -7.394158e-02  3.318200e-01 -9.690904e-01  2.086743e+00</span></span>
+<span><span class="co">#&gt; [286] -6.223767e-01 -2.102032e-01  1.915257e+00 -5.746362e-02  1.604825e-01</span></span>
+<span><span class="co">#&gt; [291] -1.923961e+00 -1.236030e+00 -8.627589e-01  5.049662e-01 -1.101796e+00</span></span>
+<span><span class="co">#&gt; [296]  1.170278e+00 -1.103640e+00 -9.239156e-01 -1.132837e+00 -1.932493e+00</span></span>
 <span><span class="fu"><a href="../reference/get_params_fastsvm.html">get_params_fastsvm</a></span><span class="op">(</span><span class="va">fit_wavelet</span><span class="op">)</span></span>
 <span><span class="co">#&gt; $alpha</span></span>
 <span><span class="co">#&gt; [1] 1</span></span>
@@ -290,7 +350,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <span><span class="co">#&gt; NULL</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $kernel</span></span>
-<span><span class="co">#&gt; &lt;function make_python_function.&lt;locals&gt;.python_function at 0x12c15fb00&gt;</span></span>
+<span><span class="co">#&gt; &lt;function make_python_function.&lt;locals&gt;.python_function at 0x129d37b00&gt;</span></span>
 <span><span class="co">#&gt;  signature: (*args, **kwargs)</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $kernel_params</span></span>

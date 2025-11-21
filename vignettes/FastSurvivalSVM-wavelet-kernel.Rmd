@@ -141,7 +141,7 @@ make_wavelet_kernel <- function(A = 1) {
 fit_wavelet <- fast_kernel_surv_svm_fit(
   data       = df,
   time_col   = "tempo",
-  delta_col  = "status",
+  delta_col  = "cens",
   kernel     = make_wavelet_kernel(A = 0.5),
   alpha      = 1,
   rank_ratio = 0,
