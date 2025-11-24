@@ -13,17 +13,26 @@ Authors@R:
              role = "aut",
              comment = c(ORCID = ""))
     )
-Description: Provides an R interface to the FastKernelSurvivalSVM model from the 
-    Python 'scikit-survival' package. The package enables fitting Survival Support 
-    Vector Machines for right-censored outcomes using kernel methods. Users may 
-    employ native kernels from 'scikit-learn' or define custom kernel functions 
-    directly in R. Computation is delegated to the Python implementation via 
-    'reticulate', while the package exposes a clean R API for fitting, predicting, 
-    evaluating and summarizing survival SVM models.
+Description: Provides an R interface to the FastKernelSurvivalSVM model 
+    from the Python 'scikit-survival' package. The package enables fitting 
+    Survival Support Vector Machines for right-censored outcomes using 
+    kernel methods. Users may employ native kernels from 'scikit-learn' 
+    or define custom kernel functions directly in R. Computation is 
+    delegated to the Python implementation via 'reticulate', while a 
+    clean R API is provided for fitting, predicting, evaluating and 
+    summarizing survival SVM models, including optional parallel bagging 
+    using 'future' and 'future.apply'.
+URL: https://github.com/prdm0/FastSurvivalSVM
+BugReports: https://github.com/prdm0/FastSurvivalSVM/issues
 Depends:
     R (>= 4.2.0)
 Imports:
-    reticulate
+    reticulate,
+    future,
+    future.apply,
+    parallel,
+    stats,
+    utils
 Encoding: UTF-8
 LazyData: true
 License: GPL-3

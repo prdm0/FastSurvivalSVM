@@ -44,15 +44,11 @@
 #'
 #' Parallelisation:
 #' \itemize{
-#'   \item If \code{parallel = TRUE}, this function automatically configures
-#'         a parallel backend using \pkg{future} and \pkg{future.apply}, and
-#'         fits base learners in parallel via \code{future_lapply()}.
-#'   \item On Unix/macOS, \code{future::multicore} is used; on Windows,
-#'         \code{future::multisession} is used.
-#'   \item All available cores (as reported by \code{parallel::detectCores()})
-#'         are used as workers.
-#'   \item The previous \code{future::plan()} is restored at the end of the
-#'         function call, so the global plan is not permanently modified.
+#'   \item If \code{parallel = TRUE}, base models are fitted in parallel using
+#'         \pkg{future.apply} (\code{future_lapply}), allowing any backend
+#'         supported by \pkg{future} (multicore, multisession, cluster, etc.).
+#'   \item The user must set the execution plan before calling this function,
+#'         e.g. \code{future::plan(multisession)}.
 #' }
 #'
 #' @param data A \code{data.frame} containing survival time, event indicator,
@@ -91,10 +87,11 @@
 #'   For pure regression on transformed survival times, use \code{rank_ratio = 0}.
 #' @param fit_intercept Logical; if \code{TRUE}, include an intercept when there
 #'   is a regression component (\code{rank_ratio < 1}).
-#' @param parallel Logical; if \code{TRUE}, base learners are fitted in parallel
-#'   using \pkg{future} + \pkg{future.apply}, with all available cores.
+#' @param parallel Logical; if \code{TRUE}, fit base learners in parallel using
+#'   \pkg{future.apply}. The execution plan must be set by the user using
+#'   \code{future::plan()}.
 #' @param seed Optional integer; seed to be set before bagging. Useful for
-#'   reproducibility, especially under parallel execution.
+#'   reproducibility, especially together with \pkg{future}.
 #' @param ... Additional arguments passed directly to
 #'   \code{sksurv.svm.FastKernelSurvivalSVM()} via
 #'   \code{fast_kernel_surv_svm_fit()}, e.g. \code{gamma}, \code{degree},
@@ -223,22 +220,25 @@
 #'
 #'
 #'   ## ------------------------------------------------------------
-#'   ## Example 4 (optional): Parallel fitting (internal plan handling)
+#'   ## Example 4 (optional): Parallel fitting using future/future.apply
 #'   ## ------------------------------------------------------------
-#'   # Here parallel = TRUE triggers automatic multicore/multisession setup
-#'   set.seed(999)
-#'   bag_parallel <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 20L,
-#'     mtry         = 2L,
-#'     kernels      = "rbf",
-#'     alpha        = 1,
-#'     rank_ratio   = 0,
-#'     parallel     = TRUE
-#'   )
-#'   score_fastsvm_bagging(bag_parallel, df)
+#'   ## Not run by default on CRAN / examples:
+#'   # if (requireNamespace("future.apply", quietly = TRUE)) {
+#'   #   future::plan(future::multisession)
+#'   #   bag_parallel <- fastsvm_bagging_fit(
+#'   #     data         = df,
+#'   #     time_col     = "tempo",
+#'   #     delta_col    = "cens",
+#'   #     n_estimators = 20L,
+#'   #     mtry         = 2L,
+#'   #     kernels      = "rbf",
+#'   #     alpha        = 1,
+#'   #     rank_ratio   = 0,
+#'   #     parallel     = TRUE,
+#'   #     seed         = 999L
+#'   #   )
+#'   #   score_fastsvm_bagging(bag_parallel, df)
+#'   # }
 #'
 #'
 #'   ## ------------------------------------------------------------
@@ -313,7 +313,6 @@
 #'   )
 #'
 #' }
-#'
 #' @export
 fastsvm_bagging_fit <- function(
   data,
@@ -428,29 +427,11 @@ fastsvm_bagging_fit <- function(
   idx_vec <- seq_len(n_estimators)
 
   if (parallel) {
-    if (!requireNamespace("future.apply", quietly = TRUE) ||
-        !requireNamespace("future", quietly = TRUE)) {
-      stop("Packages `future` and `future.apply` are required for parallel = TRUE. ",
-           "Please install them or set parallel = FALSE.")
+    if (!requireNamespace("future.apply", quietly = TRUE)) {
+      stop("Package `future.apply` is required for parallel = TRUE. ",
+           "Please install it or set parallel = FALSE.")
     }
-
-    # detect cores (fall back to 1 if NA)
-    cores <- parallel::detectCores(logical = TRUE)
-    if (is.na(cores) || cores < 1L) {
-      cores <- 1L
-    }
-
-    # save current future plan and restore on exit
-    old_plan <- future::plan()
-    on.exit(future::plan(old_plan), add = TRUE)
-
-    # choose backend by OS type
-    if (.Platform$OS.type == "unix") {
-      future::plan(future::multicore, workers = cores)
-    } else {
-      future::plan(future::multisession, workers = cores)
-    }
-
+    # user must set the desired future::plan() before calling this function
     res_list <- future.apply::future_lapply(idx_vec, fit_one_base)
   } else {
     res_list <- lapply(idx_vec, fit_one_base)
@@ -543,13 +524,14 @@ predict.fastsvm_bagging <- function(object, newdata, ...) {
 #'
 #' IMPORTANT:
 #' \itemize{
-#'   \item If \code{rank_ratio = 1}, predictions are \strong{risk scores}
+#'   \item If \code{rank_ratio = 1}, predictions are **risk scores**
 #'         (larger = higher risk → shorter survival).
 #'
-#'   \item If \code{rank_ratio < 1}, predictions are \strong{transformed survival times}
-#'         (larger = longer survival). In this case, the predictions are
-#'         multiplied by \code{-1} before computing the C-index, because
-#'         scikit-survival requires “larger = higher risk”.
+#'   \item If \code{rank_ratio < 1}, predictions are **transformed survival times**
+#'         (larger = longer survival).  
+#'         In this case, the predictions are multiplied by \code{-1} before
+#'         computing the C-index, because scikit-survival requires
+#'         “larger = higher risk”.
 #' }
 #'
 #' Internally, this uses \code{sksurv.metrics.concordance_index_censored}

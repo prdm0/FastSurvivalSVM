@@ -1,5 +1,5 @@
 ---
-title: "FastSurvivalSVM: Kernel Survival SVM Models in R"
+title: "Bagging"
 output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{FastSurvivalSVM: Kernel Survival SVM Models in R}
