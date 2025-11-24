@@ -2,5 +2,6 @@ pandoc: 3.6.3
 pkgdown: 2.2.0
 pkgdown_sha: ~
 articles:
+  bagging: bagging.html
   FastSurvivalSVM-wavelet-kernel: FastSurvivalSVM-wavelet-kernel.html
-last_built: 2025-11-21T01:12Z
+last_built: 2025-11-24T17:04Z

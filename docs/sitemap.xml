@@ -1,18 +1,24 @@
 <urlset xmlns = 'http://www.sitemaps.org/schemas/sitemap/0.9'>
 <url><loc>/404.html</loc></url>
 <url><loc>/articles/FastSurvivalSVM-wavelet-kernel.html</loc></url>
+<url><loc>/articles/bagging.html</loc></url>
 <url><loc>/articles/index.html</loc></url>
 <url><loc>/authors.html</loc></url>
 <url><loc>/index.html</loc></url>
 <url><loc>/reference/coef.fastsvm.html</loc></url>
+<url><loc>/reference/data_generation.html</loc></url>
 <url><loc>/reference/dot-mk_surv_object.html</loc></url>
 <url><loc>/reference/fast_kernel_surv_svm_fit.html</loc></url>
+<url><loc>/reference/fastsvm_bagging_fit.html</loc></url>
 <url><loc>/reference/get_params_fastsvm.html</loc></url>
 <url><loc>/reference/index.html</loc></url>
 <url><loc>/reference/predict.fastsvm.html</loc></url>
+<url><loc>/reference/predict.fastsvm_bagging.html</loc></url>
 <url><loc>/reference/print.fastsvm.html</loc></url>
+<url><loc>/reference/print.fastsvm_bagging.html</loc></url>
 <url><loc>/reference/print.summary.fastsvm.html</loc></url>
 <url><loc>/reference/score_fastsvm.html</loc></url>
+<url><loc>/reference/score_fastsvm_bagging.html</loc></url>
 <url><loc>/reference/summary.fastsvm.html</loc></url>
 </urlset>
 
