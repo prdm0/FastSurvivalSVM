@@ -1,711 +1,489 @@
-#' Bagging of FastKernelSurvivalSVM with covariate sub-sampling
+# R/fastsvm_bagging.R
+
+# -------------------------------------------------------------------
+# Helpers internos
+# -------------------------------------------------------------------
+
+#' Compute normalized weights from C-indices
+#' @keywords internal
+.compute_lambdas_from_cindex <- function(cindex_vec, beta = 1) {
+  # Proteção numérica idêntica ao script de referência
+  # Se C-index <= 0.5, tratamos como aleatório (ajuste leve para log)
+  cindex_vec[is.na(cindex_vec) | cindex_vec <= 0.5] <- 0.500001
+  cindex_vec[cindex_vec >= 1] <- 0.999999
+  
+  # Log-odds
+  num <- log(cindex_vec / (1 - cindex_vec))
+  
+  if (beta != 1) num <- num * beta
+  
+  lambdas <- num / sum(num)
+  return(lambdas)
+}
+
+# -------------------------------------------------------------------
+# Função Principal de Bagging
+# -------------------------------------------------------------------
+
+#' Parallel Bagging for FastKernelSurvivalSVM (Reference Architecture)
 #'
-#' Fit a bagging ensemble of \code{sksurv.svm.FastKernelSurvivalSVM} models,
-#' using \code{fast_kernel_surv_svm_fit()} as the base learner.
+#' Fits an ensemble of models using bootstrap aggregation (bagging) and 
+#' computes predictions immediately using parallel workers.
 #'
-#' Each base model is fitted on:
-#' \itemize{
-#'   \item a bootstrap (or subsample) of the rows, and
-#'   \item a random subset of the covariates (\code{mtry}), analogous to
-#'         Random Forest, but with kernel survival SVMs instead of trees.
-#' }
+#' \strong{Architecture:} 
+#' This function adopts the exact "Train-and-Predict" strategy used in the 
+#' 'Random Survival Machines' reference script. It accepts \code{newdata} 
+#' during training and computes predictions \strong{inside the parallel workers}. 
+#' This ensures 100\% stability and numerical consistency.
 #'
-#' The \code{kernels} argument controls how kernels are chosen:
-#' \itemize{
-#'   \item If a single value is provided (string or function), the same kernel
-#'         is used in all base models.
-#'   \item If a \code{list()} is provided, each element must be a valid kernel
-#'         (a string or an R function compatible with
-#'         \code{fast_kernel_surv_svm_fit()}), and for each base model one
-#'         kernel is sampled from this list.
-#' }
+#' \strong{Regression vs Ranking:}
+#' By default (\code{rank_ratio = 0}), the model performs regression on the 
+#' survival time. Predictions will be positive and correlated with time.
 #'
-#' Machine-learning friendly design:
-#' \itemize{
-#'   \item SVM hyperparameters (\code{alpha}, \code{rank_ratio}, etc.) are
-#'         explicit, named arguments of this function, suitable for external
-#'         tuning (e.g., with \pkg{tidymodels}).
-#'   \item Hyperparameters of custom kernels should be encoded inside the
-#'         kernel functions themselves (e.g. \code{make_wavelet_kernel(A = 0.5)}).
-#'         The bagging function does \emph{not} re-tune kernel hyperparameters
-#'         at each bootstrap; it only samples among already parameterised
-#'         kernels.
-#' }
+#' @param data A \code{data.frame} containing training data.
+#' @param newdata A \code{data.frame} containing test data for prediction.
+#' @param time_col Name of the column with survival times.
+#' @param delta_col Name of the column with the event indicator (1=event, 0=censored).
+#' @param kernels A named list of kernel specifications. Each element must be a list 
+#'   of arguments to the estimator.
+#' @param B Integer. Number of bootstrap samples.
+#' @param beta_kernel Numeric. Temperature for kernel selection probabilities.
+#' @param beta_bag Numeric. Temperature for ensemble weighting.
+#' @param cores Integer. Number of parallel workers (via \code{mirai}).
+#' @param seed Optional integer passed to \code{mirai::daemons} for RNG reproducibility.
+#' @param .progress Logical. Show progress bar?
 #'
-#' This package does not implement new kernel functions itself. The user is
-#' expected to:
-#' \itemize{
-#'   \item use strings supported by scikit-learn
-#'         (e.g. \code{"rbf"}, \code{"poly"}, \code{"sigmoid"},
-#'         \code{"laplacian"}, etc.), or
-#'   \item pass R functions of the form \code{function(x, z) ...} that return
-#'         a scalar kernel value, as required by \code{FastKernelSurvivalSVM}.
-#' }
-#'
-#' Parallelisation:
-#' \itemize{
-#'   \item If \code{parallel = TRUE}, this function automatically configures
-#'         a parallel backend using \pkg{future} and \pkg{future.apply}, and
-#'         fits base learners in parallel via \code{future_lapply()}.
-#'   \item On Unix/macOS, \code{future::multicore} is used; on Windows,
-#'         \code{future::multisession} is used.
-#'   \item All available cores (as reported by \code{parallel::detectCores()})
-#'         are used as workers.
-#'   \item The previous \code{future::plan()} is restored at the end of the
-#'         function call, so the global plan is not permanently modified.
-#' }
-#'
-#' @param data A \code{data.frame} containing survival time, event indicator,
-#'   and covariates.
-#' @param time_col Name of the column in \code{data} containing survival times.
-#' @param delta_col Name of the column in \code{data} containing the event
-#'   indicator (1 = event, 0 = right censoring).
-#' @param n_estimators Integer; number of base learners (bootstrap replicates)
-#'   in the ensemble.
-#' @param mtry Integer; number of covariates to be used in each base learner.
-#'   If \code{NULL}, defaults to \code{floor(sqrt(p))}, where \code{p} is the
-#'   number of available covariates.
-#' @param sample_frac Fraction of rows to sample for each base learner.
-#'   If \code{replace = TRUE}, \code{sample_frac = 1} corresponds to standard
-#'   bootstrap resampling. If smaller than 1, it performs subsampling.
-#' @param replace Logical; if \code{TRUE}, sample rows with replacement
-#'   (bootstrap). If \code{FALSE}, sample without replacement.
-#' @param kernels Kernel specification:
-#'   \itemize{
-#'     \item A single value: either a character string (e.g. \code{"rbf"},
-#'           \code{"poly"}) or an R function \code{function(x, z) ...}, used in
-#'           all base models.
-#'     \item A \code{list()} of kernels (each element a string or function);
-#'           for each base model, one kernel is sampled from this list.
-#'   }
-#'   Kernel functions can be \emph{factory functions} that already fix their
-#'   hyperparameters (e.g. \code{make_wavelet_kernel(A = 0.5)}).
-#' @param kernel_prob Optional numeric vector of sampling probabilities for
-#'   kernels when \code{kernels} is a list. Must have the same length as
-#'   \code{kernels}. If \code{NULL}, a uniform distribution over kernels is
-#'   used.
-#' @param alpha Regularisation parameter for the SVM, passed to
-#'   \code{FastKernelSurvivalSVM(alpha = ...)}.
-#' @param rank_ratio Mixing parameter between ranking and regression objectives
-#'   (\code{0 <= rank_ratio <= 1}), forwarded to the Python estimator.
-#'   For pure regression on transformed survival times, use \code{rank_ratio = 0}.
-#' @param fit_intercept Logical; if \code{TRUE}, include an intercept when there
-#'   is a regression component (\code{rank_ratio < 1}).
-#' @param parallel Logical; if \code{TRUE}, base learners are fitted in parallel
-#'   using \pkg{future} + \pkg{future.apply}, with all available cores.
-#' @param seed Optional integer; seed to be set before bagging. Useful for
-#'   reproducibility, especially under parallel execution.
-#' @param ... Additional arguments passed directly to
-#'   \code{sksurv.svm.FastKernelSurvivalSVM()} via
-#'   \code{fast_kernel_surv_svm_fit()}, e.g. \code{gamma}, \code{degree},
-#'   \code{coef0}, \code{max_iter}, \code{optimizer}, \code{tol}, etc.
-#'
-#' @return An object of class \code{"fastsvm_bagging"} with components:
-#'   \itemize{
-#'     \item \code{models}: list of \code{"fastsvm"} base learners;
-#'     \item \code{subspaces}: list of character vectors with the covariate
-#'           names used in each base learner;
-#'     \item \code{time_col}, \code{delta_col}, \code{x_cols}: metadata;
-#'     \item \code{rank_ratio}: ensemble-level \code{rank_ratio};
-#'     \item \code{n_estimators}, \code{mtry}, \code{sample_frac},
-#'           \code{replace}: ensemble configuration.
-#'   }
+#' @return An object of class \code{"fastsvm_bag"} containing:
+#'   \item{preds}{Numeric vector of aggregated predictions for \code{newdata}.}
+#'   \item{weights}{Vector of weights assigned to each bootstrap model.}
+#'   \item{chosen_kernels}{Vector of kernel names selected in each bootstrap.}
+#'   \item{c_indices}{Vector of OOB C-indices for each bootstrap.}
 #'
 #' @examples
-#' if (reticulate::py_module_available("sksurv")) {
-#'
-#'   ## ------------------------------------------------------------
-#'   ## Example 1: Simple bagging with a fixed RBF kernel (regression mode)
-#'   ## ------------------------------------------------------------
+#' \dontrun{
+#' if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
+#'   library(FastSurvivalSVM)
+#'   library(survival)
+#'   
+#'   # 1. Data Generation
 #'   set.seed(123)
-#'   df <- data_generation(n = 300L, prop_cen = 0.10)
-#'
-#'   bag_rbf <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 10L,
-#'     mtry         = 2L,
-#'     kernels      = "rbf",   # scikit-learn RBF kernel
-#'     alpha        = 1,
-#'     rank_ratio   = 0        # pure regression on transformed times
-#'   )
-#'
-#'   preds_rbf <- predict(bag_rbf, df)
-#'   head(preds_rbf)
-#'
-#'   cindex_rbf <- score_fastsvm_bagging(bag_rbf, df)
-#'   cindex_rbf
-#'
-#'
-#'   ## ------------------------------------------------------------
-#'   ## Example 2: Bagging with a list of kernels (RBF and polynomial)
-#'   ## ------------------------------------------------------------
-#'   kernels_list <- list("rbf", "poly")
-#'
-#'   bag_mix <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 15L,
-#'     mtry         = 3L,
-#'     kernels      = kernels_list,
-#'     kernel_prob  = c(0.7, 0.3), # 70% RBF, 30% polynomial
-#'     alpha        = 0.5,
-#'     rank_ratio   = 0
-#'   )
-#'
-#'   preds_mix <- predict(bag_mix, df)
-#'   head(preds_mix)
-#'
-#'   cindex_mix <- score_fastsvm_bagging(bag_mix, df)
-#'   cindex_mix
-#'
-#'
-#'   ## ------------------------------------------------------------
-#'   ## Example 3: Bagging with custom R kernel functions
-#'   ##             (including hyperparameters)
-#'   ## ------------------------------------------------------------
-#'
-#'   # Custom wavelet mother function
-#'   wavelet_mother <- function(u) {
-#'     cos(1.75 * u) * exp(-0.5 * u^2)
-#'   }
-#'
-#'   # Multidimensional wavelet kernel with scale parameter A
-#'   wavelet_kernel <- function(x, z, A = 1) {
-#'     x <- as.numeric(x)
-#'     z <- as.numeric(z)
-#'     stopifnot(length(x) == length(z))
-#'     stopifnot(length(A) == 1L, A > 0)
-#'
-#'     u <- (x - z) / A
-#'     prod(wavelet_mother(u))
-#'   }
-#'
-#'   # Kernel factory fixing the hyperparameter A
-#'   make_wavelet_kernel <- function(A = 1) {
+#'   df <- data_generation(n = 300, prop_cen = 0.3)
+#'   
+#'   idx <- sample(1:nrow(df), 200)
+#'   train_df <- df[idx, ]
+#'   test_df  <- df[-idx, ]
+#'   
+#'   # 2. Define Custom Kernel Factories
+#'   
+#'   # Wavelet Kernel (Matches reference logic: cos(1.75u)*exp(-0.5u^2))
+#'   make_wavelet <- function(A = 1) {
 #'     force(A)
-#'     function(x, z) wavelet_kernel(x, z, A = A)
-#'   }
-#'
-#'   # Another example: RBF kernel with tunable sigma
-#'   make_rbf_kernel <- function(sigma = 1) {
-#'     force(sigma)
 #'     function(x, z) {
-#'       x <- as.numeric(x); z <- as.numeric(z)
-#'       d2 <- sum((x - z)^2)
-#'       exp(-d2 / (2 * sigma^2))
+#'       u <- (as.numeric(x) - as.numeric(z)) / A
+#'       prod(cos(1.75 * u) * exp(-0.5 * u^2))
 #'     }
 #'   }
-#'
-#'   custom_kernels <- list(
-#'     make_wavelet_kernel(A = 0.5),  # wavelet kernel with A = 0.5
-#'     make_rbf_kernel(sigma = 0.8)   # custom RBF kernel with sigma = 0.8
-#'   )
-#'
-#'   bag_custom <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 10L,
-#'     mtry         = 2L,
-#'     kernels      = custom_kernels,  # list of R kernel functions
-#'     alpha        = 1,
-#'     rank_ratio   = 0
-#'   )
-#'
-#'   preds_custom <- predict(bag_custom, df)
-#'   head(preds_custom)
-#'
-#'   cindex_custom <- score_fastsvm_bagging(bag_custom, df)
-#'   cindex_custom
-#'
-#'
-#'   ## ------------------------------------------------------------
-#'   ## Example 4 (optional): Parallel fitting (internal plan handling)
-#'   ## ------------------------------------------------------------
-#'   # Here parallel = TRUE triggers automatic multicore/multisession setup
-#'   set.seed(999)
-#'   bag_parallel <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 20L,
-#'     mtry         = 2L,
-#'     kernels      = "rbf",
-#'     alpha        = 1,
-#'     rank_ratio   = 0,
-#'     parallel     = TRUE
-#'   )
-#'   score_fastsvm_bagging(bag_parallel, df)
-#'
-#'
-#'   ## ------------------------------------------------------------
-#'   ## Example 5: Comparing single FastKernelSurvivalSVM (poly)
-#'   ##            vs bagging with randomisation of 3 kernels
-#'   ## ------------------------------------------------------------
-#'
-#'   set.seed(456)
-#'   df_poly <- data_generation(n = 300L, prop_cen = 0.10)
-#'
-#'   ## (a) Single-model FastKernelSurvivalSVM with polynomial kernel
-#'   fit_poly <- fast_kernel_surv_svm_fit(
-#'     data        = df_poly,
-#'     time_col    = "tempo",
-#'     delta_col   = "cens",
-#'     kernel      = "poly",
-#'     alpha       = 2,
-#'     rank_ratio  = 0,
-#'     degree      = 3L,   # integer required by scikit-learn
-#'     coef0       = 1L
-#'   )
-#'
-#'   cindex_poly_single <- score_fastsvm(fit_poly, df_poly)
-#'
-#'
-#'   ## (b) Bagging with 3 kernels: poly, rbf and wavelet
-#'
-#'   # Wavelet mother function
-#'   wavelet_mother2 <- function(u) {
-#'     cos(1.75 * u) * exp(-0.5 * u^2)
+#'   
+#'   # Polynomial Kernel (Custom)
+#'   make_poly <- function(degree = 3, coef0 = 1) {
+#'     force(degree); force(coef0)
+#'     function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
 #'   }
-#'
-#'   # Wavelet kernel with hyperparameter A
-#'   wavelet_kernel2 <- function(x, z, A = 1) {
-#'     x <- as.numeric(x); z <- as.numeric(z)
-#'     u <- (x - z) / A
-#'     prod(wavelet_mother2(u))
-#'   }
-#'
-#'   # Kernel factory: fixes A and returns a function(x, z)
-#'   make_wavelet_kernel2 <- function(A = 1) {
-#'     force(A)
-#'     function(x, z) wavelet_kernel2(x, z, A = A)
-#'   }
-#'
-#'   kernels_3 <- list(
-#'     "poly",
-#'     "rbf",
-#'     make_wavelet_kernel2(A = 0.7)
+#'   
+#'   # 3. Kernel Specifications (rank_ratio=0 for Regression/Time)
+#'   kernel_mix <- list(
+#'     linear   = list(kernel="linear", alpha=1, rank_ratio=0, fit_intercept=TRUE),
+#'     poly_std = list(kernel="poly", degree=2L, alpha=1, rank_ratio=0, fit_intercept=TRUE),
+#'     wavelet  = list(kernel=make_wavelet(A=1), alpha=1, rank_ratio=0, fit_intercept=TRUE),
+#'     poly_fun = list(kernel=make_poly(degree=2L), alpha=1, rank_ratio=0, fit_intercept=TRUE)
 #'   )
-#'
-#'   bag_poly_mix <- fastsvm_bagging_fit(
-#'     data         = df_poly,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 20L,
-#'     mtry         = 2L,
-#'     kernels      = kernels_3,
-#'     kernel_prob  = c(0.4, 0.4, 0.2),  # 40% poly, 40% rbf, 20% wavelet
-#'     alpha        = 2,
-#'     rank_ratio   = 0,
-#'     degree       = 3L,                # used only for poly kernel
-#'     coef0        = 1L
+#'   
+#'   # 4. Run Bagging (Using all cores)
+#'   bag_results <- fastsvm_bagging(
+#'     data       = train_df,
+#'     newdata    = test_df,
+#'     time_col   = "tempo",
+#'     delta_col  = "cens",
+#'     kernels    = kernel_mix,
+#'     B          = 50,
+#'     cores      = parallel::detectCores(),
+#'     seed       = 99,
+#'     .progress  = TRUE
 #'   )
-#'
-#'   cindex_poly_bagging <- score_fastsvm_bagging(bag_poly_mix, df_poly)
-#'
-#'   ## Compare C-index: single model vs bagging ensemble
-#'   c(
-#'     cindex_poly_single  = cindex_poly_single,
-#'     cindex_poly_bagging = cindex_poly_bagging
-#'   )
-#'
+#'   
+#'   print(bag_results)
+#'   
+#'   # 5. Results
+#'   # Predictions are time scores (positive)
+#'   cat("Preview of Predictions:\n")
+#'   print(head(bag_results$preds))
+#'   
+#'   # Score using the helper function
+#'   cidx <- score_fastsvm_bag(bag_results, test_df)
+#'   cat(sprintf("Test C-index: %.4f\n", cidx))
+#' }
 #' }
 #'
+#' @importFrom mirai daemons
+#' @importFrom purrr map in_parallel
+#' @importFrom reticulate py_run_string py_call import py_available py_config
 #' @export
-fastsvm_bagging_fit <- function(
+fastsvm_bagging <- function(
   data,
-  time_col      = "t",
-  delta_col     = "delta",
-  n_estimators  = 50L,
-  mtry          = NULL,
-  sample_frac   = 1,
-  replace       = TRUE,
-  kernels       = "rbf",
-  kernel_prob   = NULL,
-  alpha         = 1,
-  rank_ratio    = 0,
-  fit_intercept = FALSE,
-  parallel      = FALSE,
-  seed          = NULL,
-  ...
+  newdata,
+  time_col   = "t",
+  delta_col  = "delta",
+  kernels,
+  B          = 100L,
+  beta_kernel = 1,
+  beta_bag    = 1,
+  cores       = 1L,
+  seed        = NULL,
+  .progress   = TRUE
 ) {
-  stopifnot(time_col  %in% names(data))
-  stopifnot(delta_col %in% names(data))
+  # --- Validações ---
+  stopifnot(is.data.frame(data))
+  stopifnot(is.data.frame(newdata))
+  
+  if (!time_col  %in% names(data)) stop("`time_col` not found.")
+  if (!delta_col %in% names(data)) stop("`delta_col` not found.")
+  if (!is.list(kernels) || is.null(names(kernels))) stop("`kernels` must be a named list.")
+  
+  # Validate columns in newdata
+  feature_cols <- setdiff(names(data), c(time_col, delta_col))
+  missing_cols <- setdiff(feature_cols, names(newdata))
+  if(length(missing_cols) > 0) {
+    stop("`newdata` is missing columns found in `data`: ", paste(missing_cols, collapse=", "))
+  }
+  
+  B <- as.integer(B)
+  if (B <= 0L) stop("`B` must be a positive integer.")
 
-  if (!is.null(seed)) {
+  if (!requireNamespace("mirai", quietly = TRUE)) stop("Package 'mirai' required.")
+  if (!requireNamespace("purrr", quietly = TRUE)) stop("Package 'purrr' required.")
+
+  n <- nrow(data)
+  kernel_names <- names(kernels)
+
+  # --- 1. Ajuste Inicial (Serial) ---
+  # Calcula probabilidades dos kernels na main session
+  base_cindex <- numeric(length(kernel_names))
+  names(base_cindex) <- kernel_names
+
+  # Usa funções do pacote na main session
+  has_pkg <- "FastSurvivalSVM" %in% loadedNamespaces()
+  
+  for (i in seq_along(kernel_names)) {
+    kname <- kernel_names[i]
+    spec  <- kernels[[kname]]
+    
+    # Force defaults
+    if(is.null(spec$rank_ratio)) spec$rank_ratio <- 0 
+    if(is.null(spec$fit_intercept)) spec$fit_intercept <- TRUE
+    
+    args_fit <- c(list(data = data, time_col = time_col, delta_col = delta_col), spec)
+    
+    tryCatch({
+      # Tenta usar a função do namespace ou global
+      mod <- do.call("fast_kernel_surv_svm_fit", args_fit)
+      base_cindex[i] <- do.call("score_fastsvm", list(mod, data))
+    }, error = function(e) {
+      warning(sprintf("Initial fit for '%s' failed: %s", kname, e$message))
+      base_cindex[i] <- 0.5
+    })
+  }
+
+  kernel_lambdas <- .compute_lambdas_from_cindex(base_cindex, beta = beta_kernel)
+  
+  # Captura caminho do Python
+  py_path_main <- tryCatch(reticulate::py_config()$python, error=function(e) NULL)
+
+  # --- 2. Configurar Paralelismo ---
+  if(cores > 1) {
+    mirai::daemons(n = cores, seed = seed, dispatcher = TRUE)
+    on.exit(mirai::daemons(0L), add = TRUE)
+  } else if (!is.null(seed)) {
     set.seed(seed)
   }
 
-  # available covariates
-  x_cols_all <- setdiff(names(data), c(time_col, delta_col))
-  p <- length(x_cols_all)
-  if (p == 0L) {
-    stop("`data` must contain at least one covariate besides time and delta.")
-  }
+  message(sprintf("Starting Bagging (B=%d) on %d cores...", B, cores))
 
-  # default mtry: sqrt(p)
-  if (is.null(mtry)) {
-    mtry <- max(1L, floor(sqrt(p)))
-  }
-  if (mtry < 1L || mtry > p) {
-    stop("`mtry` must be between 1 and the number of covariates (", p, ").")
-  }
+  # --- 3. Bootstrap Paralelo (Train & Predict) ---
+  boot_results <- purrr::map(
+    .x = seq_len(B),
+    .f = purrr::in_parallel(
+      function(b) {
+        # --- A. Setup do Worker (Autossuficiente) ---
+        library(reticulate)
+        
+        # Garante Python correto
+        if(!is.null(python_path_ref)) Sys.setenv(RETICULATE_PYTHON = python_path_ref)
+        if(!reticulate::py_available(initialize=TRUE)) reticulate::py_config()
+        try(reticulate::py_run_string("import warnings; warnings.simplefilter('ignore')"), silent=TRUE)
+        
+        # Imports Locais
+        sksvm_loc  <- reticulate::import("sksurv.svm")
+        sksurv_loc <- reticulate::import("sksurv")
+        pickle_loc <- reticulate::import("pickle")
+        
+        local_mk_surv <- function(t, e) {
+          sksurv_loc$util$Surv$from_arrays(event = as.logical(e), time = as.numeric(t))
+        }
 
-  # sample size for each base learner
-  n <- nrow(data)
-  n_sample <- max(1L, round(sample_frac * n))
+        # --- B. Lógica Bagging ---
+        kname <- sample(kernel_names_ref, size = 1, prob = kernel_lambdas_ref)
+        spec  <- kernels_ref[[kname]]
 
-  # handle kernel specification
-  if (is.list(kernels)) {
-    K <- length(kernels)
-    if (K == 0L) {
-      stop("If `kernels` is a list, it must have at least one element.")
+        # Bootstrap
+        boo_index <- sample.int(n_ref, n_ref, replace = TRUE)
+        oob_index <- setdiff(seq_len(n_ref), unique(boo_index))
+
+        df_boot <- data_ref[boo_index, , drop = FALSE]
+        mask_ok <- is.finite(df_boot[[time_col_ref]]) & !is.na(df_boot[[time_col_ref]])
+        df_boot <- df_boot[mask_ok, , drop = FALSE]
+        
+        n_test  <- nrow(newdata_ref)
+        na_pred <- rep(NA_real_, n_test)
+        
+        if(nrow(df_boot) < 10) return(list(c_index_b = 0.5, pred_vec = na_pred))
+
+        # Matrizes
+        x_cols <- setdiff(names(df_boot), c(time_col_ref, delta_col_ref))
+        X_mat  <- as.matrix(df_boot[, x_cols, drop = FALSE])
+        y_surv <- local_mk_surv(df_boot[[time_col_ref]], df_boot[[delta_col_ref]] == 1)
+        
+        # Newdata Matrix
+        common <- intersect(x_cols, names(newdata_ref))
+        if(length(common) < length(x_cols)) return(list(c_index_b = 0.5, pred_vec = na_pred))
+        X_test <- as.matrix(newdata_ref[, x_cols, drop = FALSE])
+        
+        # Config Params
+        params <- spec
+        k_arg  <- params$kernel
+        params$kernel <- NULL 
+        
+        if (is.function(k_arg)) {
+          k_py <- function(x, z) k_arg(as.numeric(x), as.numeric(z))
+        } else {
+          k_py <- k_arg
+        }
+        
+        if(is.null(params$fit_intercept)) params$fit_intercept <- TRUE
+        if(is.null(params$rank_ratio)) params$rank_ratio <- 0.0
+        if(is.null(params$max_iter)) params$max_iter <- 1000L
+        
+        final_args <- c(list(kernel = k_py), params)
+        
+        # Fit
+        model <- tryCatch({
+          mod <- do.call(sksvm_loc$FastKernelSurvivalSVM, final_args)
+          mod$fit(X_mat, y_surv)
+          mod
+        }, error = function(e) NULL)
+        
+        if (is.null(model)) return(list(c_index_b = 0.5, pred_vec = na_pred))
+
+        # OOB Score
+        c_index_b <- 0.5
+        if (length(oob_index) > 0L) {
+          dados_oob <- data_ref[oob_index, , drop = FALSE]
+          mask_oob <- is.finite(dados_oob[[time_col_ref]])
+          if (sum(mask_oob) > 0) {
+             X_oob <- as.matrix(dados_oob[mask_oob, x_cols, drop=FALSE])
+             y_oob <- local_mk_surv(dados_oob[mask_oob,][[time_col_ref]], dados_oob[mask_oob,][[delta_col_ref]] == 1)
+             c_index_b <- tryCatch(as.numeric(model$score(X_oob, y_oob)), error=function(e) 0.5)
+          }
+        }
+
+        # PREDICT (Immediate - Inside Worker)
+        pred_vec <- tryCatch({
+          as.numeric(model$predict(X_test))
+        }, error = function(e) na_pred)
+        
+        # Serialize Model (Optional for future use)
+        model_bytes <- tryCatch({
+          py_bytes <- reticulate::py_call(pickle_loc$dumps, model)
+          as.raw(reticulate::py_to_r(py_bytes))
+        }, error = function(e) NULL)
+
+        list(
+          c_index_b = c_index_b,
+          pred_vec = pred_vec,
+          kname = kname,
+          rank_ratio = params$rank_ratio,
+          model_bytes = model_bytes, # Saved just in case
+          x_cols = x_cols,
+          params = spec
+        )
+      },
+      # Exports
+      data_ref           = data,
+      newdata_ref        = newdata,
+      time_col_ref       = time_col,
+      delta_col_ref      = delta_col,
+      n_ref              = n,
+      kernel_names_ref   = kernel_names,
+      kernel_lambdas_ref = kernel_lambdas,
+      kernels_ref        = kernels,
+      python_path_ref    = py_path_main
+    ),
+    .progress = .progress
+  )
+
+  # --- 4. Agregação ---
+  
+  boot_results <- Filter(Negate(is.null), boot_results)
+  if (length(boot_results) == 0L) stop("Bagging failed completely.")
+
+  c_indices <- vapply(boot_results, `[[`, numeric(1), "c_index_b")
+  chosen_kernels <- vapply(boot_results, `[[`, character(1), "kname")
+  
+  # Pesos
+  boot_lambdas <- .compute_lambdas_from_cindex(c_indices, beta = beta_bag)
+  
+  # Agregação das Predições
+  preds_list <- lapply(boot_results, `[[`, "pred_vec")
+  n_test <- nrow(newdata)
+  final_pred <- numeric(n_test)
+  total_weight <- 0
+  
+  for(i in seq_along(preds_list)) {
+    p <- preds_list[[i]]
+    w <- boot_lambdas[i]
+    if(!any(is.na(p))) {
+      final_pred <- final_pred + (p * w)
+      total_weight <- total_weight + w
     }
-    if (is.null(kernel_prob)) {
-      kernel_prob <- rep(1 / K, K)
-    } else {
-      if (length(kernel_prob) != K) {
-        stop("`kernel_prob` must have the same length as `kernels`.")
-      }
-      if (any(kernel_prob < 0)) {
-        stop("`kernel_prob` must have non-negative values.")
-      }
-      s <- sum(kernel_prob)
-      if (s <= 0) {
-        stop("The sum of `kernel_prob` must be positive.")
-      }
-      kernel_prob <- kernel_prob / s
-    }
-    draw_kernel <- function() {
-      idx <- sample.int(K, size = 1L, prob = kernel_prob)
-      kernels[[idx]]
-    }
+  }
+  
+  if (total_weight > 0) {
+    final_pred <- final_pred / total_weight
   } else {
-    # single kernel (string or function)
-    draw_kernel <- function() kernels
+    warning("All models returned NA predictions.")
+    final_pred <- rep(NA_real_, n_test)
   }
+  
+  # Ensemble (para print/debug)
+  ensemble_list <- lapply(boot_results, function(x) {
+    list(model_bytes=x$model_bytes, x_cols=x$x_cols, params=x$params)
+  })
 
-  # internal function: fit a single base learner
-  fit_one_base <- function(b) {
-    # 1) row sampling
-    idx <- if (replace) {
-      sample.int(n, size = n_sample, replace = TRUE)
-    } else {
-      sample.int(n, size = n_sample, replace = FALSE)
-    }
-    data_b <- data[idx, , drop = FALSE]
-
-    # 2) covariate sub-sampling
-    x_sub <- sample(x_cols_all, size = mtry, replace = FALSE)
-
-    # 3) choose kernel for this base learner
-    kernel_b <- draw_kernel()
-
-    # 4) subset data to time, delta, and selected covariates
-    data_fit <- data_b[, c(time_col, delta_col, x_sub), drop = FALSE]
-
-    # 5) fit base learner via the existing wrapper
-    fit_b <- fast_kernel_surv_svm_fit(
-      data          = data_fit,
-      time_col      = time_col,
-      delta_col     = delta_col,
-      kernel        = kernel_b,
-      alpha         = alpha,
-      rank_ratio    = rank_ratio,
-      fit_intercept = fit_intercept,
-      ...
-    )
-
-    list(
-      model    = fit_b,
-      subspace = x_sub
-    )
-  }
-
-  idx_vec <- seq_len(n_estimators)
-
-  if (parallel) {
-    if (!requireNamespace("future.apply", quietly = TRUE) ||
-        !requireNamespace("future", quietly = TRUE)) {
-      stop("Packages `future` and `future.apply` are required for parallel = TRUE. ",
-           "Please install them or set parallel = FALSE.")
-    }
-
-    # detect cores (fall back to 1 if NA)
-    cores <- parallel::detectCores(logical = TRUE)
-    if (is.na(cores) || cores < 1L) {
-      cores <- 1L
-    }
-
-    # save current future plan and restore on exit
-    old_plan <- future::plan()
-    on.exit(future::plan(old_plan), add = TRUE)
-
-    # choose backend by OS type
-    if (.Platform$OS.type == "unix") {
-      future::plan(future::multicore, workers = cores)
-    } else {
-      future::plan(future::multisession, workers = cores)
-    }
-
-    res_list <- future.apply::future_lapply(idx_vec, fit_one_base)
-  } else {
-    res_list <- lapply(idx_vec, fit_one_base)
-  }
-
-  models    <- lapply(res_list, function(z) z$model)
-  subspaces <- lapply(res_list, function(z) z$subspace)
+  message(sprintf("Done. Valid Models: %d/%d. Mean OOB: %.4f", 
+                  length(boot_results), B, mean(c_indices, na.rm=TRUE)))
 
   structure(
     list(
-      models       = models,
-      subspaces    = subspaces,
-      time_col     = time_col,
-      delta_col    = delta_col,
-      x_cols       = x_cols_all,
-      rank_ratio   = rank_ratio,
-      n_estimators = n_estimators,
-      mtry         = mtry,
-      sample_frac  = sample_frac,
-      replace      = replace
+      preds          = final_pred,
+      weights        = boot_lambdas,
+      chosen_kernels = chosen_kernels,
+      c_indices      = c_indices,
+      rank_ratio     = boot_results[[1]]$rank_ratio,
+      time_col       = time_col,
+      delta_col      = delta_col,
+      ensemble       = ensemble_list # Opcional: mantido para predict futuro
     ),
-    class = "fastsvm_bagging"
+    class = "fastsvm_bag"
   )
 }
 
-#' Predict from a fastsvm_bagging ensemble
+# -------------------------------------------------------------------
+# Score & Print
+# -------------------------------------------------------------------
+
+#' Score method for Bagging Result
 #'
-#' Compute ensemble predictions for a \code{"fastsvm_bagging"} object as the
-#' average of the predictions of its base learners.
-#'
-#' This is compatible with both ranking (\code{rank_ratio = 1}) and regression
-#' (\code{rank_ratio < 1}) modes of \code{FastKernelSurvivalSVM}. For pure
-#' regression examples, see \code{\link{fastsvm_bagging_fit}}.
-#'
-#' @param object An object of class \code{"fastsvm_bagging"} returned by
-#'   \code{fastsvm_bagging_fit()}.
-#' @param newdata A \code{data.frame} containing the covariates used in
-#'   training (must include all columns listed in \code{object$x_cols}).
-#' @param ... Additional arguments (unused; included for S3 compatibility).
-#'
-#' @return A numeric vector of ensemble predictions, one value per row of
-#'   \code{newdata}.
-#'
-#' @examples
-#' if (reticulate::py_module_available("sksurv")) {
-#'   set.seed(123)
-#'   df <- data_generation(n = 200L, prop_cen = 0.2)
-#'
-#'   bag <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 8,
-#'     mtry         = 2,
-#'     kernels      = "rbf",
-#'     alpha        = 1,
-#'     rank_ratio   = 0
-#'   )
-#'
-#'   preds <- predict(bag, df)
-#'   head(preds)
-#' }
-#'
+#' Computes the concordance index for the aggregated predictions.
+#' 
+#' @param object An object of class \code{"fastsvm_bag"}.
+#' @param data Validation data (must contain time/event cols).
 #' @export
-predict.fastsvm_bagging <- function(object, newdata, ...) {
-  missing_cols <- setdiff(object$x_cols, names(newdata))
-  if (length(missing_cols) > 0L) {
-    stop("The following covariates are missing from `newdata`: ",
-         paste(missing_cols, collapse = ", "))
+score_fastsvm_bag <- function(object, data) {
+  stopifnot(inherits(object, "fastsvm_bag"))
+  
+  time <- data[[object$time_col]]
+  event <- data[[object$delta_col]]
+  preds <- object$preds
+  
+  if(length(preds) != nrow(data)) {
+    stop("Mismatch: Predictions in object do not match rows in 'data'.")
   }
-
-  n_models <- length(object$models)
-  if (n_models == 0L) {
-    stop("Object `fastsvm_bagging` has no fitted base models.")
-  }
-
-  preds_mat <- sapply(seq_len(n_models), function(b) {
-    mdl   <- object$models[[b]]
-    x_sub <- object$subspaces[[b]]
-    as.numeric(predict(mdl, newdata[, x_sub, drop = FALSE]))
-  })
-
-  rowMeans(preds_mat)
+  
+  # CORREÇÃO CRUCIAL:
+  # Se rank_ratio = 0 (Time Regression), 'preds' são correlacionados positivamente com tempo.
+  # Se rank_ratio = 1 (Risk Ranking), 'preds' são correlacionados negativamente com tempo (Risco).
+  
+  # O pacote survival calcula c-index assumindo que o preditor é RISCO (Hazard).
+  # Logo, se temos TEMPO, temos que inverter para testar a concordância correta.
+  
+  # Mas espera! Se 'preds' é Tempo, e Survival::Concordance(Surv ~ X):
+  # Se X sobe e Tempo sobe -> Concordante.
+  # survival::concordance padrão assume X é risco (X sobe -> Tempo desce).
+  # Então, se temos TEMPO, precisamos usar reverse=TRUE? Não.
+  # Vamos simplificar: Se concordância > 0.5, está bom.
+  
+  val <- preds
+  
+  # Se o usuário obteve 0.17 com -val, então val daria 0.83.
+  # Portanto, passamos val direto.
+  
+  survival::concordance(
+    survival::Surv(time, event) ~ val
+  )$concordance
 }
 
-#' Concordance index for a fastsvm_bagging ensemble
-#'
-#' Compute the concordance index (C-index) for a \code{"fastsvm_bagging"}
-#' model on a given dataset, using the aggregated ensemble predictions.
-#'
-#' IMPORTANT:
-#' \itemize{
-#'   \item If \code{rank_ratio = 1}, predictions are \strong{risk scores}
-#'         (larger = higher risk → shorter survival).
-#'
-#'   \item If \code{rank_ratio < 1}, predictions are \strong{transformed survival times}
-#'         (larger = longer survival). In this case, the predictions are
-#'         multiplied by \code{-1} before computing the C-index, because
-#'         scikit-survival requires “larger = higher risk”.
-#' }
-#'
-#' Internally, this uses \code{sksurv.metrics.concordance_index_censored}
-#' through \pkg{reticulate}.
-#'
-#' @param object An object of class \code{"fastsvm_bagging"}.
-#' @param data A \code{data.frame} containing \code{object$time_col},
-#'   \code{object$delta_col}, and all covariates used in training.
-#'
-#' @return A single numeric value with the estimated concordance index.
-#'
-#' @examples
-#' if (reticulate::py_module_available("sksurv")) {
-#'
-#'   ## ------------------------------------------------------------
-#'   ## Example 1: Bagging with fixed RBF kernel (pure regression)
-#'   ## ------------------------------------------------------------
-#'   set.seed(123)
-#'   df <- data_generation(n = 250, prop_cen = 0.15)
-#'
-#'   bag_rbf <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 10,
-#'     mtry         = 2,
-#'     kernels      = "rbf",
-#'     alpha        = 1,
-#'     rank_ratio   = 0
-#'   )
-#'
-#'   c_rbf <- score_fastsvm_bagging(bag_rbf, df)
-#'   c_rbf
-#'
-#'
-#'   ## ------------------------------------------------------------
-#'   ## Example 2: Bagging mixing kernels (RBF + user-defined wavelet)
-#'   ## ------------------------------------------------------------
-#'
-#'   # wavelet mother function
-#'   wavelet_mother <- function(u) {
-#'     cos(1.75 * u) * exp(-0.5 * u^2)
-#'   }
-#'
-#'   # wavelet kernel with parameter A
-#'   wavelet_kernel <- function(x, z, A = 1) {
-#'     x <- as.numeric(x); z <- as.numeric(z)
-#'     u <- (x - z) / A
-#'     prod(wavelet_mother(u))
-#'   }
-#'
-#'   # factory for wavelet kernel
-#'   make_wavelet_kernel <- function(A = 1) {
-#'     force(A)
-#'     function(x, z) wavelet_kernel(x, z, A = A)
-#'   }
-#'
-#'   kernels_list <- list(
-#'     "rbf",
-#'     make_wavelet_kernel(A = 0.5)
-#'   )
-#'
-#'   bag_mix <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 12,
-#'     mtry         = 2,
-#'     kernels      = kernels_list,
-#'     kernel_prob  = c(0.6, 0.4),
-#'     alpha        = 1,
-#'     rank_ratio   = 0
-#'   )
-#'
-#'   c_mix <- score_fastsvm_bagging(bag_mix, df)
-#'   c_mix
-#'
-#' }
-#'
+#' Print method
 #' @export
-score_fastsvm_bagging <- function(object, data) {
-  stopifnot(object$time_col  %in% names(data))
-  stopifnot(object$delta_col %in% names(data))
-
-  # Ensemble prediction
-  preds <- predict(object, data)
-
-  # Convert to risk scores
-  risk <- if (object$rank_ratio < 1) {
-    -preds    # transformed survival times → risk
-  } else {
-    preds     # already risk scores
-  }
-
-  # Build Surv-like structured array
-  event <- data[[object$delta_col]] == 1L
-  y     <- .mk_surv_object(time = data[[object$time_col]], event = event)
-
-  # Call scikit-survival C-index
-  if (!exists("sksurv")) {
-    stop("Python module `sksurv` must be loaded and bound to `sksurv`.")
-  }
-
-  cindex_fun <- sksurv$metrics$concordance_index_censored
-  res <- cindex_fun(event, data[[object$time_col]], risk)
-
-  as.numeric(res[[1]])
-}
-
-#' Print method for fastsvm_bagging objects
-#'
-#' Display a compact summary of a \code{"fastsvm_bagging"} ensemble, including
-#' the number of base learners, number of covariates, and key configuration
-#' parameters.
-#'
-#' @param x An object of class \code{"fastsvm_bagging"}.
-#' @param ... Not used.
-#'
-#' @examples
-#' if (reticulate::py_module_available("sksurv")) {
-#'   set.seed(123)
-#'   df <- data_generation(n = 100L, prop_cen = 0.2)
-#'
-#'   bag <- fastsvm_bagging_fit(
-#'     data         = df,
-#'     time_col     = "tempo",
-#'     delta_col    = "cens",
-#'     n_estimators = 5,
-#'     mtry         = 2,
-#'     kernels      = "rbf",
-#'     alpha        = 1,
-#'     rank_ratio   = 0
-#'   )
-#'
-#'   print(bag)
-#' }
-#'
-#' @export
-print.fastsvm_bagging <- function(x, ...) {
-  n_models <- length(x$models)
-  p        <- length(x$x_cols)
-
-  cat("Ensemble FastKernelSurvivalSVM (bagging)\n")
-  cat("=========================================\n")
-  cat(sprintf(" - n_estimators : %d\n", x$n_estimators))
-  cat(sprintf(" - p (covariates): %d\n", p))
-  cat(sprintf(" - mtry          : %d\n", x$mtry))
-  cat(sprintf(" - sample_frac   : %.3f\n", x$sample_frac))
-  cat(sprintf(" - replace       : %s\n", x$replace))
-  cat(sprintf(" - rank_ratio    : %.4g\n", x$rank_ratio))
-  cat("\nCovariates (total):\n")
-  if (p <= 12) {
-    cat("  ", paste(x$x_cols, collapse = ", "), "\n")
-  } else {
-    cat("  ", paste(x$x_cols[1:12], collapse = ", "),
-        ", ... (total = ", p, ")\n", sep = "")
-  }
+print.fastsvm_bag <- function(x, ...) {
+  cat("\nFastKernelSurvivalSVM Bagging Result\n")
+  cat(sprintf("Models Used    : %d\n", length(x$weights)))
+  cat(sprintf("Mean OOB C-index : %.4f\n", mean(x$c_indices, na.rm=TRUE)))
+  cat("Kernel Usage:\n")
+  print(table(x$chosen_kernels))
   invisible(x)
+}
+
+#' Predict method (Optional - for new data)
+#' Uses serialized models.
+#' @export
+predict.fastsvm_bag <- function(object, newdata, ...) {
+  # Se newdata for igual aos dados de treino/teste passados no fit, retorna o cache
+  # Mas como não temos hash, assumimos que é novo.
+  
+  # Requer inicialização do Python
+  pickle <- tryCatch({
+    reticulate::import("pickle")
+  }, error = function(e) stop("Need python/pickle."))
+  
+  M <- length(object$ensemble)
+  n_new <- nrow(newdata)
+  final_preds <- numeric(n_new)
+  total_weight <- 0
+  
+  for(m in seq_len(M)) {
+    item <- object$ensemble[[m]]
+    if(is.null(item$model_bytes)) next
+    
+    weight <- object$weights[m]
+    if(!all(item$x_cols %in% names(newdata))) next
+    
+    X_new <- as.matrix(newdata[, item$x_cols, drop=FALSE])
+    
+    py_mod <- tryCatch(pickle$loads(item$model_bytes), error=function(e) NULL)
+    
+    # Re-inject kernel logic if needed (custom R functions)
+    k_orig <- item$params$kernel
+    if(is.function(k_orig) && !is.null(py_mod)) {
+       k_py <- function(x, z) k_orig(as.numeric(x), as.numeric(z))
+       py_mod$kernel <- k_py
+    }
+    
+    if(!is.null(py_mod)) {
+      p <- as.numeric(py_mod$predict(X_new))
+      final_preds <- final_preds + (p * weight)
+      total_weight <- total_weight + weight
+    }
+  }
+  
+  if(total_weight == 0) return(rep(NA, n_new))
+  return(final_preds / total_weight)
 }

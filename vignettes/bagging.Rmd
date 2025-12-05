@@ -1,13 +1,13 @@
 ---
-title: "Bagging"
+title: "Robust Parallel Bagging with Mixed Kernels"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{FastSurvivalSVM: Kernel Survival SVM Models in R}
+  %\VignetteIndexEntry{Robust Parallel Bagging}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r setup, include=FALSE}
+```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
@@ -16,302 +16,191 @@ knitr::opts_chunk$set(
 
 # Introduction
 
-**FastSurvivalSVM** provides an R interface to the Python class  
-`FastKernelSurvivalSVM` implemented in the package **scikit-survival**.
+The **FastSurvivalSVM** package provides a robust implementation of **Bagging (Bootstrap Aggregating)** for Survival Support Vector Machines.
 
-The wrapper uses the **reticulate** framework to seamlessly call Python code  
-and exposes an R-friendly API for:
+This implementation is designed for high-performance computing using:
 
-- Kernel survival SVMs for right-censored data  
-- Custom R‐defined kernels  
-- Easy access to Python hyperparameters  
-- Bagging ensembles (random subspaces + random kernels)
+1.  **`mirai`**: For robust, isolated parallel processing (preventing environment issues).
+2.  **`reticulate`**: To interface with Python's `scikit-survival`.
+3.  **Hybrid Architecture**: It supports mixing standard optimized kernels (C++) with custom user-defined R functions.
 
-This vignette demonstrates the core workflow and a complete applied example,
-including usage of **custom kernels** and **bagging with kernel randomisation**.
+This vignette demonstrates a complete workflow: generating data, defining custom kernels, running a parallel ensemble for time regression, and evaluating performance.
+
+> **Note:** This vignette executes parallel code. Ensure you have Python installed and configured via `reticulate`.
 
 ---
 
-# Installation
+# 1. Data Generation and Splitting
 
-## Install from GitHub
+First, we generate a synthetic dataset using a Weibull model with right-censoring. We split the data into a **training set** (used to build the bagging ensemble) and a **test set** (used to evaluate the final performance).
 
-```{r, eval=FALSE}
-remotes::install_github("prdm0/FastSurvivalSVM")
-```
-
-## Python dependencies
-
-You **do not** need to configure Python manually.  
-The package declares:
-
-- numpy  
-- pandas  
-- scikit-learn  
-- scikit-survival
-
-and installs them automatically inside an isolated environment.
-
-To force use of a specific Python:
-
-```{r, eval=FALSE}
-library(reticulate)
-use_python("/usr/bin/python3", required = TRUE)
-```
-
----
-
-# Data generation function
-
-The package provides a **fixed data generator** used for examples and testing.  
-It generates three covariates, Weibull survival times, and right censoring.
-
-```{r}
+```{r setup, message=FALSE, warning=FALSE}
 library(FastSurvivalSVM)
+library(survival)
 
+# Ensure reproducible data generation
 set.seed(123)
-df <- data_generation(n = 300, prop_cen = 0.1)
-head(df)
+df <- data_generation(n = 300, prop_cen = 0.3)
+
+# Split: 200 for training, 100 for testing
+idx <- sample(1:nrow(df), 200)
+train_df <- df[idx, ]
+test_df  <- df[-idx, ]
+
+cat("Training set size:", nrow(train_df), "\n")
+cat("Test set size:", nrow(test_df), "\n")
 ```
 
 ---
 
-# Fitting a single FastKernelSurvivalSVM model
+# 2. Defining Custom Kernels
 
-```{r, message=FALSE}
-fit_rbf <- fast_kernel_surv_svm_fit(
-  data       = df,
-  time_col   = "tempo",
-  delta_col  = "cens",
-  kernel     = "rbf",
-  alpha      = 1,
-  rank_ratio = 0
-)
+One of the most powerful features of `fastsvm_bagging` is the ability to mix standard kernels (defined by strings like `"linear"` or `"rbf"`) with **custom kernels defined as R functions**.
 
-summary(fit_rbf)
-```
+Here we define two custom kernel factories. A "factory" is a function that takes hyperparameters (like `sigma` or `degree`) and returns a kernel function `f(x, z)`.
 
-Compute predictions:
+### Wavelet Kernel
+This kernel is useful for capturing complex non-linear patterns.
+\[ K(x, z) = \prod_{j=1}^p \cos\left(1.75 \frac{x_j - z_j}{A}\right) \exp\left(-0.5 \frac{(x_j - z_j)^2}{A^2}\right) \]
 
 ```{r}
-preds <- predict(fit_rbf, df)
-head(preds)
+# Factory for Wavelet Kernel
+# Matches reference logic: cos(1.75u)*exp(-0.5u^2)
+make_wavelet <- function(A = 1) {
+  force(A) # Ensure A is captured
+  function(x, z) {
+    u <- (as.numeric(x) - as.numeric(z)) / A
+    prod(cos(1.75 * u) * exp(-0.5 * u^2))
+  }
+}
 ```
 
-Compute the C-index:
+### Custom Polynomial Kernel
+A standard polynomial kernel implemented manually in R.
+\[ K(x, z) = (\gamma \cdot x^T z + \text{coef0})^{\text{degree}} \]
 
 ```{r}
-score_fastsvm(fit_rbf, df)
+# Factory for Polynomial Kernel
+make_poly <- function(degree = 3, coef0 = 1) {
+  force(degree); force(coef0)
+  function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
+}
 ```
 
 ---
 
-# Custom Wavelet Kernel Example
+# 3. Configuring the Kernel Mixture
 
-We implement a wavelet kernel based on the mother function
+We create a list of kernel configurations. The bagging algorithm will randomly sample one of these configurations for each bootstrap iteration based on their initial performance.
 
-\[
-h(u) = \cos(1.75 u)\, e^{-0.5 u^2},
-\]
+**Crucial Note on `rank_ratio`:**
 
-applied componentwise to the difference between covariate vectors.
-
-## Step 1 — Define the mother wavelet
+* We set **`rank_ratio = 0`**. This tells the SVM to perform **Regression**.
+* The model attempts to predict the **Survival Time** (or a transformation of it).
+* Predictions will be **positive values** where *Higher Value = Longer Survival*.
 
 ```{r}
-wavelet_mother <- function(u) {
-  cos(1.75 * u) * exp(-0.5 * u^2)
-}
-```
-
-## Step 2 — Define the multidimensional kernel
-
-```{r}
-wavelet_kernel <- function(x, z, A = 1) {
-  x <- as.numeric(x)
-  z <- as.numeric(z)
-  stopifnot(length(x) == length(z))
-  stopifnot(length(A) == 1L, A > 0)
-
-  u <- (x - z) / A
-  prod(wavelet_mother(u))
-}
-```
-
-## Step 3 — Create a factory to fix hyperparameter A
-
-```{r}
-make_wavelet_kernel <- function(A = 1) {
-  force(A)
-  function(x, z) wavelet_kernel(x, z, A = A)
-}
-```
-
-## Step 4 — Fit SVM with wavelet kernel
-
-```{r, message=FALSE}
-fit_wavelet <- fast_kernel_surv_svm_fit(
-  data          = df,
-  time_col      = "tempo",
-  delta_col     = "cens",
-  kernel        = make_wavelet_kernel(A = 0.5),
-  alpha         = 1,
-  rank_ratio    = 0,
-  fit_intercept = FALSE
-)
-```
-
-Compute C-index:
-
-```{r}
-score_fastsvm(fit_wavelet, df)
-```
-
----
-
-# Bagging with Random Subspaces and Random Kernels
-
-This method works like a **Random Forest**, but using  
-**FastKernelSurvivalSVM** as the base learner.
-
-Each base learner:
-
-- Samples bootstrap rows  
-- Samples *mtry* random covariates  
-- Samples a kernel from a user-provided list  
-
-We illustrate a comparison between:
-
-1. A **single** FastKernelSurvivalSVM with polynomial kernel; and  
-2. A **bagging ensemble** that randomises over 3 kernels: `"poly"`, `"rbf"` and a wavelet kernel.
-
-## Data for comparison
-
-```{r}
-set.seed(456)
-df_poly <- data_generation(n = 300, prop_cen = 0.10)
-```
-
-## (a) Single-model FastKernelSurvivalSVM with polynomial kernel
-
-```{r, message=FALSE}
-fit_poly <- fast_kernel_surv_svm_fit(
-  data        = df_poly,
-  time_col    = "tempo",
-  delta_col   = "cens",
-  kernel      = "poly",
-  alpha       = 2,
-  rank_ratio  = 0,   # pure regression on transformed survival times
-  degree      = 3L,  # polynomial degree (must be integer)
-  coef0       = 1L   # bias term in polynomial kernel (integer here)
-)
-
-cindex_poly_single <- score_fastsvm(fit_poly, df_poly)
-cindex_poly_single
-```
-
-## (b) Bagging ensemble with randomisation over 3 kernels
-
-We now define again a wavelet kernel and combine it with `"poly"` and `"rbf"`:
-
-```{r}
-# Wavelet mother function
-wavelet_mother2 <- function(u) {
-  cos(1.75 * u) * exp(-0.5 * u^2)
-}
-
-# Wavelet kernel with hyperparameter A
-wavelet_kernel2 <- function(x, z, A = 1) {
-  x <- as.numeric(x); z <- as.numeric(z)
-  stopifnot(length(x) == length(z))
-  stopifnot(length(A) == 1L, A > 0)
-
-  u <- (x - z) / A
-  prod(wavelet_mother2(u))
-}
-
-# Kernel factory: fixes A and returns a function(x, z)
-make_wavelet_kernel2 <- function(A = 1) {
-  force(A)
-  function(x, z) wavelet_kernel2(x, z, A = A)
-}
-```
-
-Construct the list of kernels:
-
-```{r}
-kernels_3 <- list(
-  "poly",
-  "rbf",
-  make_wavelet_kernel2(A = 0.7)
-)
-```
-
-Fit the bagging ensemble:
-
-```{r, message=FALSE}
-bag_poly_mix <- fastsvm_bagging_fit(
-  data         = df_poly,
-  time_col     = "tempo",
-  delta_col    = "cens",
-  n_estimators = 20L,               # number of base learners
-  mtry         = 2L,                # covariates per base learner
-  kernels      = kernels_3,         # list of 3 kernels
-  kernel_prob  = c(0.4, 0.4, 0.2),  # 40% poly, 40% rbf, 20% wavelet
-  alpha        = 2,
-  rank_ratio   = 0,
-  degree       = 3L,                # used by "poly"
-  coef0        = 1L
-)
-
-cindex_poly_bagging <- score_fastsvm_bagging(bag_poly_mix, df_poly)
-cindex_poly_bagging
-```
-
-## Comparing single model vs bagging ensemble
-
-```{r}
-c(
-  cindex_poly_single  = cindex_poly_single,
-  cindex_poly_bagging = cindex_poly_bagging
-)
-```
-
-Depending on the data and hyperparameters, bagging with randomised kernels
-may provide more stable or robust performance compared to a single kernel model.
-
----
-
-# Parallel Bagging (Optional)
-
-If you want to fit the ensemble in parallel, you can use `future` + `future.apply`:
-
-```{r, eval=FALSE}
-if (requireNamespace("future.apply", quietly = TRUE)) {
-  library(future)
-  plan(multisession)
-
-  bag_parallel <- fastsvm_bagging_fit(
-    data         = df,
-    time_col     = "tempo",
-    delta_col    = "cens",
-    n_estimators = 20,
-    mtry         = 2,
-    kernels      = "rbf",
-    alpha        = 1,
-    rank_ratio   = 0,
-    parallel     = TRUE,
-    seed         = 999
+# 3. Kernel Specifications (rank_ratio=0 for Regression/Time)
+kernel_mix <- list(
+  # Standard Linear Kernel (String)
+  linear = list(
+    kernel = "linear", 
+    alpha = 1, 
+    rank_ratio = 0, 
+    fit_intercept = TRUE
+  ),
+  
+  # Standard Polynomial Kernel (String)
+  # Note: Integers (2L) help avoid warnings in Python strict typing
+  poly_std = list(
+    kernel = "poly", 
+    degree = 2L, 
+    alpha = 1, 
+    rank_ratio = 0, 
+    fit_intercept = TRUE
+  ),
+  
+  # Custom Wavelet Kernel (R Function)
+  wavelet = list(
+    kernel = make_wavelet(A = 1), 
+    alpha = 1, 
+    rank_ratio = 0, 
+    fit_intercept = TRUE
+  ),
+  
+  # Custom Polynomial Kernel (R Function)
+  poly_fun = list(
+    kernel = make_poly(degree = 2L), 
+    alpha = 1, 
+    rank_ratio = 0, 
+    fit_intercept = TRUE
   )
+)
+```
 
-  score_fastsvm_bagging(bag_parallel, df)
+---
+
+# 4. Running the Parallel Bagging
+
+We execute `fastsvm_bagging`. Note that we pass `newdata = test_df` during training. 
+
+This utilizes the **Train-and-Predict** architecture: predictions are computed inside the parallel workers immediately after training, ensuring numerical stability and avoiding serialization errors with Python objects.
+
+```{r}
+# Check if Python/Mirai are available before running (for safe vignette build)
+can_run <- reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly = TRUE)
+
+if (can_run) {
+  # 4. Run Bagging (Using all available cores)
+  bag_results <- fastsvm_bagging(
+    data       = train_df,
+    newdata    = test_df,
+    time_col   = "tempo",
+    delta_col  = "cens",
+    kernels    = kernel_mix,
+    B          = 50,
+    cores      = parallel::detectCores(),
+    seed       = 99,
+    .progress  = FALSE # Set to FALSE for cleaner vignette output
+  )
+  
+  print(bag_results)
 }
 ```
 
 ---
 
-# Session Info
+# 5. Results Analysis
+
+If the model ran successfully, we can inspect the predictions and the performance.
+
+### Predictions (Time Scale)
+
+Since we used `rank_ratio = 0`, the predictions represent time scores. Higher values indicate longer expected survival.
 
 ```{r}
-sessionInfo()
+if (can_run) {
+  cat("Preview of Predictions:\n")
+  print(head(bag_results$preds))
+}
 ```
+
+### Performance Evaluation (C-index)
+
+We use `score_fastsvm_bag` to calculate the Concordance Index. This function automatically detects that we used Regression mode (`rank_ratio = 0`) and handles the correlation direction correctly (inverting the sign if necessary so that the C-index reflects concordance with survival time).
+
+```{r}
+if (can_run) {
+  # Score using the helper function
+  cidx <- score_fastsvm_bag(bag_results, test_df)
+  cat(sprintf("Test C-index: %.4f\n", cidx))
+}
+```
+
+A C-index above 0.7 or 0.8 indicates a very strong predictive performance for this synthetic dataset, demonstrating that the ensemble successfully learned the non-linear patterns using the provided kernels.
+
+---
+
+# Conclusion
+
+The `fastsvm_bagging` function provides a powerful, numerically stable, and parallelized way to fit survival models. By allowing custom R kernels and handling the complexity of Python serialization internally (by predicting within workers), it allows users to focus on modeling complex survival patterns with ease.
