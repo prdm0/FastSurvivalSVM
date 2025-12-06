@@ -11,6 +11,7 @@ fastsvm_bagging(
   delta_col = "delta",
   kernels,
   B = 100L,
+  mtry = NULL,
   beta_kernel = 1,
   beta_bag = 1,
   cores = 1L,
@@ -32,6 +33,13 @@ of arguments to the estimator.}
 
 \item{B}{Integer. Number of bootstrap samples.}
 
+\item{mtry}{Integer or Numeric. Number of variables to randomly sample at each split.
+\itemize{
+  \item \code{NULL} (default): Use all variables (Standard Bagging).
+  \item Integer >= 1: Select exactly \code{mtry} variables.
+  \item Numeric < 1: Select \code{mtry} fraction of variables (e.g., 0.5 = 50\%).
+}}
+
 \item{beta_kernel}{Numeric. Temperature for kernel selection probabilities.}
 
 \item{beta_bag}{Numeric. Temperature for ensemble weighting.}
@@ -48,6 +56,7 @@ An object of class \code{"fastsvm_bag"} containing:
   \item{weights}{Vector of weights assigned to each bootstrap model.}
   \item{chosen_kernels}{Vector of kernel names selected in each bootstrap.}
   \item{c_indices}{Vector of OOB C-indices for each bootstrap.}
+  \item{mtry}{The mtry value used.}
 }
 \description{
 Fits an ensemble of models using bootstrap aggregation (bagging) and 
@@ -60,9 +69,13 @@ This function adopts the exact "Train-and-Predict" strategy used in the
 during training and computes predictions \strong{inside the parallel workers}. 
 This ensures 100\% stability and numerical consistency.
 
+\strong{Random Subspace (mtry):}
+The \code{mtry} parameter allows for the random selection of a subset of 
+covariates for each base learner, increasing diversity (similar to Random Forest).
+
 \strong{Regression vs Ranking:}
 By default (\code{rank_ratio = 0}), the model performs regression on the 
-survival time. Predictions will be positive and correlated with time.
+survival time.
 }
 \examples{
 \dontrun{
@@ -78,9 +91,7 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
   train_df <- df[idx, ]
   test_df  <- df[-idx, ]
   
-  # 2. Define Custom Kernel Factories
-  
-  # Wavelet Kernel (Matches reference logic: cos(1.75u)*exp(-0.5u^2))
+  # 2. Custom Kernel Factories
   make_wavelet <- function(A = 1) {
     force(A)
     function(x, z) {
@@ -89,7 +100,6 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
     }
   }
   
-  # Polynomial Kernel (Custom)
   make_poly <- function(degree = 3, coef0 = 1) {
     force(degree); force(coef0)
     function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
@@ -103,7 +113,8 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
     poly_fun = list(kernel=make_poly(degree=2L), alpha=1, rank_ratio=0, fit_intercept=TRUE)
   )
   
-  # 4. Run Bagging (Using all cores)
+  # 4. Run Bagging (Using mtry for Random Subspace)
+  # We select 2 random features per model
   bag_results <- fastsvm_bagging(
     data       = train_df,
     newdata    = test_df,
@@ -111,6 +122,7 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
     delta_col  = "cens",
     kernels    = kernel_mix,
     B          = 50,
+    mtry       = 2, 
     cores      = parallel::detectCores(),
     seed       = 99,
     .progress  = TRUE
@@ -119,11 +131,11 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
   print(bag_results)
   
   # 5. Results
-  # Predictions are time scores (positive)
   cat("Preview of Predictions:\n")
   print(head(bag_results$preds))
   
-  # Score using the helper function
+  # Score 
+  # Should give high concordance (e.g. > 0.80) matching reference script
   cidx <- score_fastsvm_bag(bag_results, test_df)
   cat(sprintf("Test C-index: \%.4f\n", cidx))
 }
