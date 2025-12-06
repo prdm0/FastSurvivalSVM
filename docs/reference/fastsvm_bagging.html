@@ -33,7 +33,7 @@ computes predictions immediately using parallel workers."><!-- mathjax --><scrip
     <span class="caret"></span>
   </a>
   <ul class="dropdown-menu" role="menu"><li>
-      <a href="../articles/bagging.html">Robust Parallel Bagging with Mixed Kernels</a>
+      <a href="../articles/bagging.html">Bagging with FastSurvivalSVM</a>
     </li>
     <li>
       <a href="../articles/FastSurvivalSVM-wavelet-kernel.html">Using Custom Kernels with FastSurvivalSVM: The Wavelet Kernel</a>
@@ -72,6 +72,7 @@ computes predictions immediately using parallel workers.</p>
 <span>  delta_col <span class="op">=</span> <span class="st">"delta"</span>,</span>
 <span>  <span class="va">kernels</span>,</span>
 <span>  B <span class="op">=</span> <span class="fl">100L</span>,</span>
+<span>  mtry <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  beta_kernel <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>  beta_bag <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>  cores <span class="op">=</span> <span class="fl">1L</span>,</span>
@@ -109,6 +110,13 @@ of arguments to the estimator.</p></dd>
 <dd><p>Integer. Number of bootstrap samples.</p></dd>
 
 
+<dt id="arg-mtry">mtry<a class="anchor" aria-label="anchor" href="#arg-mtry"></a></dt>
+<dd><p>Integer or Numeric. Number of variables to randomly sample at each split.</p><ul><li><p><code>NULL</code> (default): Use all variables (Standard Bagging).</p></li>
+<li><p>Integer &gt;= 1: Select exactly <code>mtry</code> variables.</p></li>
+<li><p>Numeric &lt; 1: Select <code>mtry</code> fraction of variables (e.g., 0.5 = 50%).</p></li>
+</ul></dd>
+
+
 <dt id="arg-beta-kernel">beta_kernel<a class="anchor" aria-label="anchor" href="#arg-beta-kernel"></a></dt>
 <dd><p>Numeric. Temperature for kernel selection probabilities.</p></dd>
 
@@ -144,6 +152,9 @@ of arguments to the estimator.</p></dd>
   <dt>c_indices</dt>
 <dd><p>Vector of OOB C-indices for each bootstrap.</p></dd>
 
+  <dt>mtry</dt>
+<dd><p>The mtry value used.</p></dd>
+
 </dl></div>
     <div id="details">
     <h2>Details</h2>
@@ -152,9 +163,12 @@ This function adopts the exact "Train-and-Predict" strategy used in the
 'Random Survival Machines' reference script. It accepts <code>newdata</code>
 during training and computes predictions <strong>inside the parallel workers</strong>.
 This ensures 100% stability and numerical consistency.</p>
+<p><strong>Random Subspace (mtry):</strong>
+The <code>mtry</code> parameter allows for the random selection of a subset of
+covariates for each base learner, increasing diversity (similar to Random Forest).</p>
 <p><strong>Regression vs Ranking:</strong>
 By default (<code>rank_ratio = 0</code>), the model performs regression on the
-survival time. Predictions will be positive and correlated with time.</p>
+survival time.</p>
     </div>
 
     <div id="ref-examples">
@@ -172,9 +186,7 @@ survival time. Predictions will be positive and correlated with time.</p>
 <span class="r-in"><span>  <span class="va">train_df</span> <span class="op">&lt;-</span> <span class="va">df</span><span class="op">[</span><span class="va">idx</span>, <span class="op">]</span></span></span>
 <span class="r-in"><span>  <span class="va">test_df</span>  <span class="op">&lt;-</span> <span class="va">df</span><span class="op">[</span><span class="op">-</span><span class="va">idx</span>, <span class="op">]</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 2. Define Custom Kernel Factories</span></span></span>
-<span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># Wavelet Kernel (Matches reference logic: cos(1.75u)*exp(-0.5u^2))</span></span></span>
+<span class="r-in"><span>  <span class="co"># 2. Custom Kernel Factories</span></span></span>
 <span class="r-in"><span>  <span class="va">make_wavelet</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">A</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">A</span><span class="op">)</span></span></span>
 <span class="r-in"><span>    <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="op">{</span></span></span>
@@ -183,7 +195,6 @@ survival time. Predictions will be positive and correlated with time.</p>
 <span class="r-in"><span>    <span class="op">}</span></span></span>
 <span class="r-in"><span>  <span class="op">}</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># Polynomial Kernel (Custom)</span></span></span>
 <span class="r-in"><span>  <span class="va">make_poly</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">degree</span> <span class="op">=</span> <span class="fl">3</span>, <span class="va">coef0</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">degree</span><span class="op">)</span>; <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">coef0</span><span class="op">)</span></span></span>
 <span class="r-in"><span>    <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span> <span class="va">coef0</span><span class="op">)</span><span class="op">^</span><span class="va">degree</span></span></span>
@@ -197,7 +208,8 @@ survival time. Predictions will be positive and correlated with time.</p>
 <span class="r-in"><span>    poly_fun <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>kernel<span class="op">=</span><span class="fu">make_poly</span><span class="op">(</span>degree<span class="op">=</span><span class="fl">2L</span><span class="op">)</span>, alpha<span class="op">=</span><span class="fl">1</span>, rank_ratio<span class="op">=</span><span class="fl">0</span>, fit_intercept<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 4. Run Bagging (Using all cores)</span></span></span>
+<span class="r-in"><span>  <span class="co"># 4. Run Bagging (Using mtry for Random Subspace)</span></span></span>
+<span class="r-in"><span>  <span class="co"># We select 2 random features per model</span></span></span>
 <span class="r-in"><span>  <span class="va">bag_results</span> <span class="op">&lt;-</span> <span class="fu">fastsvm_bagging</span><span class="op">(</span></span></span>
 <span class="r-in"><span>    data       <span class="op">=</span> <span class="va">train_df</span>,</span></span>
 <span class="r-in"><span>    newdata    <span class="op">=</span> <span class="va">test_df</span>,</span></span>
@@ -205,6 +217,7 @@ survival time. Predictions will be positive and correlated with time.</p>
 <span class="r-in"><span>    delta_col  <span class="op">=</span> <span class="st">"cens"</span>,</span></span>
 <span class="r-in"><span>    kernels    <span class="op">=</span> <span class="va">kernel_mix</span>,</span></span>
 <span class="r-in"><span>    B          <span class="op">=</span> <span class="fl">50</span>,</span></span>
+<span class="r-in"><span>    mtry       <span class="op">=</span> <span class="fl">2</span>, </span></span>
 <span class="r-in"><span>    cores      <span class="op">=</span> <span class="fu">parallel</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/parallel/detectCores.html" class="external-link">detectCores</a></span><span class="op">(</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>    seed       <span class="op">=</span> <span class="fl">99</span>,</span></span>
 <span class="r-in"><span>    .progress  <span class="op">=</span> <span class="cn">TRUE</span></span></span>
@@ -213,11 +226,11 @@ survival time. Predictions will be positive and correlated with time.</p>
 <span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">bag_results</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
 <span class="r-in"><span>  <span class="co"># 5. Results</span></span></span>
-<span class="r-in"><span>  <span class="co"># Predictions are time scores (positive)</span></span></span>
 <span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/cat.html" class="external-link">cat</a></span><span class="op">(</span><span class="st">"Preview of Predictions:\n"</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">bag_results</span><span class="op">$</span><span class="va">preds</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># Score using the helper function</span></span></span>
+<span class="r-in"><span>  <span class="co"># Score </span></span></span>
+<span class="r-in"><span>  <span class="co"># Should give high concordance (e.g. &gt; 0.80) matching reference script</span></span></span>
 <span class="r-in"><span>  <span class="va">cidx</span> <span class="op">&lt;-</span> <span class="fu"><a href="score_fastsvm_bag.html">score_fastsvm_bag</a></span><span class="op">(</span><span class="va">bag_results</span>, <span class="va">test_df</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/cat.html" class="external-link">cat</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"Test C-index: %.4f\n"</span>, <span class="va">cidx</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span></span></span>
