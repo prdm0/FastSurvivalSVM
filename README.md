@@ -28,7 +28,7 @@ Install the development version from GitHub:
 
 ```r
 # install.packages("remotes")
-remotes::install_github("prdm0/FastSurvivalSVM")
+remotes::install_github("prdm0/FastSurvivalSVM", force = TRUE)
 ```
 
 > **Note:** On the first run, the package will automatically set up a minimal Python environment.  
@@ -142,10 +142,6 @@ fit_wav <- fastsvm(
 - **Pölsterl, S. et al. (2016)**.  
   *An Efficient Training Algorithm for Kernel Survival Support Vector Machines.*  
   arXiv:1611.07054.
-
-- **Marinho, P. R. D. et al.**  
-  *Random Machines: A bagged-weighted support vector model for censored data.*  
-  *(In preparation.)*
 
 ---
 
