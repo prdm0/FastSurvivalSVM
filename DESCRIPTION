@@ -21,19 +21,21 @@ Description: Provides an R interface to the FastKernelSurvivalSVM model
     delegated to the Python implementation via 'reticulate', while a 
     clean R API is provided for fitting, predicting, evaluating and 
     summarizing survival SVM models, including optional parallel bagging 
-    using 'future' and 'future.apply'.
+    using 'mirai' and 'purrr'.
 URL: https://github.com/prdm0/FastSurvivalSVM
 BugReports: https://github.com/prdm0/FastSurvivalSVM/issues
 Depends:
     R (>= 4.2.0)
 Imports:
-    reticulate,
-    future,
-    future.apply,
+    cli,
+    mirai,
     parallel,
+    purrr,
+    reticulate,
     stats,
+    survival,
     utils
 Encoding: UTF-8
 LazyData: true
-License: GPL-3
+License: MIT + file LICENSE
 RoxygenNote: 7.3.3

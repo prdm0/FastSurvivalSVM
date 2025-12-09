@@ -476,5 +476,3 @@ coef.fastsvm <- function(object, ...) {
 get_params_fastsvm <- function(object, ...) {
   reticulate::py_to_r(object$model$get_params())
 }
-
-

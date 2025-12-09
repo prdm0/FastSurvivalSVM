@@ -1,0 +1,125 @@
+---
+title: "Advanced Guide: Custom Kernels and Random Machines"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Advanced Guide: Custom Kernels and Random Machines}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## 1. Understanding Custom Kernels in R
+
+The **FastSurvivalSVM** package allows the use of user-defined custom kernels.  
+However, correct implementation requires understanding a functional programming concept called **Function Factories** and R's **Lazy Evaluation** mechanism.
+
+### 1.1 The "Function that Returns a Function" Pattern (Function Factory)
+
+The SVM algorithm (in the underlying Python **scikit-survival** backend) expects a kernel function with exactly two arguments: the vectors `x` and `z`.
+
+\[
+K(x, z) \rightarrow \text{scalar}
+\]
+
+However, many kernels have extra hyperparameters.
+
+```r
+# Incorrect for SVM
+kernel_wavelet <- function(x, z, A) {
+  # ...
+}
+```
+
+### 1.2 The Role of force()
+
+Lazy evaluation means parameters are only evaluated when used.  
+`force(A)` freezes the parameter inside the closure.
+
+## 2. Kernel Implementation
+
+```{r}
+library(FastSurvivalSVM)
+```
+
+### Wavelet Kernel
+
+```{r}
+make_wavelet <- function(A = 1) {
+  force(A)
+  function(x, z) {
+    x <- as.numeric(x)
+    z <- as.numeric(z)
+    u <- (x - z) / A
+    prod(cos(1.75 * u) * exp(-0.5 * u^2))
+  }
+}
+```
+
+### Polynomial Kernel
+
+```{r}
+make_poly <- function(degree = 3, coef0 = 1, gamma = 1) {
+  force(degree); force(coef0); force(gamma)
+  function(x, z) {
+    x <- as.numeric(x)
+    z <- as.numeric(z)
+    inner <- sum(x * z)
+    (gamma * inner + coef0)^degree
+  }
+}
+```
+
+## 3. Random Machines Example
+
+```{r}
+set.seed(42)
+df <- data_generation(n = 200, prop_cen = 0.25)
+
+train_idx   <- sample(1:200, 150)
+dados_train <- df[train_idx, ]
+dados_test  <- df[-train_idx, ]
+
+kernel_mix <- list(
+  linear_base = list(kernel = "linear", alpha = 1),
+  rbf_std = list(kernel = "rbf", alpha = 0.5, gamma = 0.1),
+  wavelet_A1 = list(kernel = make_wavelet(A = 1), alpha = 1),
+  poly_deg2 = list(kernel = make_poly(degree = 2, coef0 = 1), alpha = 1)
+)
+```
+
+### Running Random Machines
+
+```{r}
+set.seed(123)
+rm_model <- random_machines(
+  data         = dados_train,
+  newdata      = dados_test,
+  time_col     = "tempo",
+  delta_col    = "cens",
+  kernels      = kernel_mix,
+  B            = 50,
+  mtry         = NULL,
+  crop         = 0.15,
+  prop_holdout = 0.20,
+  cores        = 1
+)
+```
+
+### Print Model
+
+```{r}
+print(rm_model)
+```
+
+### C-index
+
+```{r}
+c_index <- score(rm_model, dados_test)
+cat(sprintf("Final C-index on test set: %.4f\n", c_index))
+```

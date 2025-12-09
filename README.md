@@ -1,231 +1,154 @@
-# FastSurvivalSVM
+# FastSurvivalSVM <img src="logo.png" align="right" width="250"/>
 
-FastSurvivalSVM is an R package that provides a high-level interface to the Python implementation of **FastKernelSurvivalSVM**, available in the `scikit-survival` library. It enables R users to fit kernel-based survival Support Vector Machines for right-censored time-to-event data using a unified, user-friendly API.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 
-This package uses the **reticulate** framework to communicate with Python, automatically handles the necessary Python dependencies, and makes the powerful kernel survival SVM models from `scikit-survival` accessible directly from R workflows.
+> **High-Performance Kernel Survival Support Vector Machines for R**
 
----
+**FastSurvivalSVM** provides a seamless R interface to the state-of-the-art **FastKernelSurvivalSVM** implementation from the Python library `scikit-survival`.
 
-## ✨ Features
-
-- Fit **kernel survival SVMs** using the Python function  
-  [`sksurv.svm.FastKernelSurvivalSVM`](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html)
-- Handles **right-censored survival data**
-- Supports:
-  - Built-in scikit-learn kernels (`"rbf"`, `"poly"`, `"sigmoid"`, etc.)
-  - **Custom kernels written in R**
-- Returns predictions, concordance index (C-index), and detailed summaries
-- Automatically constructs the Python `Surv` structured array required by scikit-survival
-- Minimal Python setup required; dependencies are managed automatically with `reticulate::py_require()`
+Beyond standard modeling, it introduces **Random Machines**, a powerful ensemble method that combines bagging, random feature subspaces, and adaptive kernel selection to maximize predictive performance on right-censored data.
 
 ---
 
-## 🔗 Repositories
+## ⚡ Why FastSurvivalSVM?
 
-- **R package:** https://github.com/prdm0/FastSurvivalSVM  
-- **Python backend (`scikit-survival`):** https://scikit-survival.readthedocs.io/en/stable/index.html  
-- **Function wrapped by this package:**  
-  https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html  
+- 🚀 **Speed & Efficiency:** Parallel execution powered by `mirai` and optimized Python backend.
+- 🧠 **Random Machines:** Ensemble algorithm that automatically selects the best kernels using internal holdout.
+- ✂️ **Adaptive Pruning:** The `crop` parameter discards weak kernels from the ensemble.
+- 🎨 **Custom Kernels in R:** Define fully custom kernel functions (e.g., Wavelet) using closures and function factories.
+- 🛠️ **Zero Configuration:** Automatic Python environment handling via `reticulate`.
+- ✨ **Modern Output:** Clean, readable console summaries with `cli`.
 
 ---
 
 ## 📦 Installation
 
-### 1. Install the R package (development version)
+Install the development version from GitHub:
 
 ```r
+# install.packages("remotes")
 remotes::install_github("prdm0/FastSurvivalSVM")
 ```
 
-### 2. Python dependencies
-
-You do **not** need to install Python manually in most cases.
-
-The package automatically declares the following Python requirements:
-
-- `numpy`
-- `pandas`
-- `scikit-learn`
-- `scikit-survival`
-
-These will be installed in an **ephemeral virtual environment** the first time the package is used.
-
-If you prefer manual installation, configure Python before loading the package:
-
-```r
-library(reticulate)
-use_python("/usr/bin/python3", required = TRUE)
-```
+> **Note:** On the first run, the package will automatically set up a minimal Python environment.  
+No manual Python installation required.
 
 ---
 
-## 🚀 Example: Fitting a Survival SVM
+## 🏁 Quick Start: Single Model
+
+Fit a standard Survival SVM using a built-in kernel.
 
 ```r
 library(FastSurvivalSVM)
 
-set.seed(1)
-n <- 100
-df <- data.frame(
-  time   = rexp(n, rate = 0.1),
-  status = rbinom(n, 1, 0.7),  # 1 = event, 0 = censoring
-  x1     = rnorm(n),
-  x2     = rnorm(n)
+# 1. Generate synthetic survival data
+set.seed(123)
+df <- data_generation(n = 100, prop_cen = 0.3)
+
+# 2. Fit the model
+fit <- fastsvm(
+  data      = df,
+  time_col  = "tempo",
+  delta_col = "cens",
+  kernel    = "rbf",
+  alpha     = 1
 )
 
-# Fit with RBF kernel (default)
-fit_rbf <- fast_kernel_surv_svm_fit(
-  data       = df,
-  time_col   = "time",
-  delta_col  = "status",
-  kernel     = "rbf",
-  alpha      = 1,
-  rank_ratio = 0  # regression mode
-)
+# 3. Predict & score
+pred <- predict(fit, df)
+c_index <- score(fit, df)
 
-# Predictions
-preds <- predict(fit_rbf, df)
-head(preds)
-
-# Concordance index
-score_fastsvm(fit_rbf, df)
-
-# Summary
-summary(fit_rbf)
+print(c_index)
+#> [1] 0.785
 ```
 
 ---
 
-## 🎨 Example: Using a Custom Kernel in R
+## 🔥 Random Machines
+
+Random Machines is an ensemble technique that:
+
+- reduces variance,
+- optimizes kernel choice,
+- assigns kernel weights through an internal holdout strategy,
+- and aggregates predictions using weighted voting.
+
+Use:
+
+- `crop` to eliminate weak kernels,
+- `mtry` to select random feature subsets, similar to Random Forest.
+
+### Example
 
 ```r
-# Custom RBF kernel
-rbf_custom <- function(x, z, sigma = 0.5) {
-  d2 <- sum((x - z)^2)
-  exp(-d2 / (2 * sigma^2))
-}
-
-fit_custom <- fast_kernel_surv_svm_fit(
-  data       = df,
-  time_col   = "time",
-  delta_col  = "status",
-  kernel     = function(x, z) rbf_custom(x, z),
-  alpha      = 1,
-  rank_ratio = 0
+# Candidate kernels (mix strings and custom R functions)
+kernels_list <- list(
+  linear = list(kernel = "linear", alpha = 1),
+  rbf    = list(kernel = "rbf", alpha = 0.5, gamma = 0.1),
+  poly   = list(kernel = "poly", degree = 2, alpha = 1)
 )
 
-summary(fit_custom)
+# Run Random Machines
+ens_model <- random_machines(
+  data         = df,
+  newdata      = df,   # usually your test set
+  time_col     = "tempo",
+  delta_col    = "cens",
+  kernels      = kernels_list,
+  B            = 50,
+  crop         = 0.15,
+  mtry         = NULL,
+  cores        = 4
+)
+
+# Inspect results
+print(ens_model)
 ```
 
 ---
 
-## 📘 Model Details
+## 🎨 Advanced: Custom Kernels in R
 
-The underlying Python estimator implements the kernel survival SVM described in:
+Fully customize kernel functions via function factories (closures), ideal for kernels with hyperparameters.
 
-> **Pölsterl, S., Navab, N., Katouzian, A. (2016).**  
-> *An Efficient Training Algorithm for Kernel Survival Support Vector Machines*.  
-> 4th Workshop on Machine Learning in Life Sciences.  
-> arXiv:1611.07054
+### Example: Wavelet Kernel
 
-### Supported Kernel Types
+```r
+make_wavelet <- function(A = 1) {
+  force(A)
+  function(x, z) {
+    x <- as.numeric(x)
+    z <- as.numeric(z)
+    u <- (x - z) / A
+    prod(cos(1.75 * u) * exp(-0.5 * u^2))
+  }
+}
 
-You may pass:
-
-| Type | Example | Description |
-|------|---------|-------------|
-| String | `"rbf"` | scikit-learn kernel |
-| R function | `function(x,z) ...` | Must return scalar kernel value |
-| `"precomputed"` | custom matrix | Kernel matrix supplied as `X` |
-
-### Prediction Types
-
-- If `rank_ratio = 1`: **risk scores** (higher = higher risk)
-- If `rank_ratio < 1`: **transformed survival times** (higher = longer survival)
-
----
-
-## 📊 Methods Provided
-
-### `fast_kernel_surv_svm_fit()`
-Fit the model.
-
-### `predict.fastsvm()`
-Predict risk scores or transformed survival times.
-
-### `score_fastsvm()`
-Compute C-index.
-
-### `summary.fastsvm()`
-Detailed model summary including:
-- Coefficients
-- Number of support vectors
-- Kernel type
-- Hyperparameters
-- Optimization iterations
-
-### `print.fastsvm()`
-Compact printing.
-
----
-
-## ⚙️ Internal Mechanics
-
-### Python Bridge
-
-The package internally creates:
-
-- A Python callable kernel (bridging R → Python)
-- A `Surv` structured array using:
-
-```python
-sksurv.util.Surv.from_arrays(event, time)
+# Use custom kernel
+fit_wav <- fastsvm(
+  data      = df,
+  time_col  = "tempo",
+  delta_col = "cens",
+  kernel    = make_wavelet(A = 1.5)
+)
 ```
 
-### Why only right censoring?
-
-Because FastKernelSurvivalSVM is explicitly designed for:
-
-- **Right-censored data**
-- No interval or left censoring
-- No competing risks
-
-Matching scikit-survival’s theoretical formulation.
-
 ---
 
-## 👨‍💻 Authors
+## 📚 References
 
-- **Pedro Rafael Diniz Marinho**  
-  *Author & Maintainer*  
-  Email: pedro.rafael.marinho@gmail.com  
+- **Pölsterl, S. et al. (2016)**.  
+  *An Efficient Training Algorithm for Kernel Survival Support Vector Machines.*  
+  arXiv:1611.07054.
 
-- **Agatha Sacramento Rodrigues**  
-  *Author*  
-  Email: agatha.srodrigues@gmail.com  
+- **Marinho, P. R. D. et al.**  
+  *Random Machines: A bagged-weighted support vector model for censored data.*  
+  *(In preparation.)*
 
 ---
 
 ## 📄 License
 
-MIT License. 
-
----
-
-## 🙌 Acknowledgements
-
-This package is a high-level R wrapper inspired by the work of:
-
-- Sebastian Pölsterl and contributors to **scikit-survival**
-- The **reticulate** project (RStudio / Posit)
-- The broader survival analysis community
-
----
-
-If you want, I can also generate:
-
-- **Hex sticker**  
-- **CRAN-style pkgdown website**  
-- **Vignette demonstrating real-world usage**  
-- **Simulation study comparing kernels**
-
+MIT © Pedro Rafael Diniz Marinho & Agatha Sacramento Rodrigues.

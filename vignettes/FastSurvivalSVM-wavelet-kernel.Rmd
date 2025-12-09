@@ -138,7 +138,7 @@ make_wavelet_kernel <- function(A = 1) {
 # Fitting the model
 
 ```{r}
-fit_wavelet <- fast_kernel_surv_svm_fit(
+fit_wavelet <- fastsvm(
   data       = df,
   time_col   = "tempo",
   delta_col  = "cens",
@@ -163,7 +163,7 @@ head(preds)
 # Concordance Index
 
 ```{r}
-score_fastsvm(fit_wavelet, df)
+score(fit_wavelet, df)
 ```
 
 ---

@@ -6,6 +6,11 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Using Custom Kernels with FastSurvivalSVM: The Wavelet Kernel • FastSurvivalSVM</title>
+<!-- favicons --><link rel="icon" type="image/png" sizes="48x48" href="../favicon-48x48.png">
+<link rel="icon" type="”image/svg+xml”" href="../favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="../apple-touch-icon.png">
+<link rel="icon" sizes="any" href="../favicon.ico">
+<link rel="manifest" href="../site.webmanifest">
 <!-- jquery --><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script><!-- Bootstrap --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/css/bootstrap.min.css" integrity="sha256-bZLfwXAP04zRMK2BjiO8iu9pf4FbLqX6zitd+tIvLhE=" crossorigin="anonymous">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/js/bootstrap.min.js" integrity="sha256-nuL8/2cJ5NDSSwnKD8VqreErSWHtnEP9E7AySL+1ev4=" crossorigin="anonymous"></script><!-- bootstrap-toc --><link rel="stylesheet" href="../bootstrap-toc.css">
 <script src="../bootstrap-toc.js"></script><!-- Font Awesome icons --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/css/all.min.css" integrity="sha256-mmgLkCYLUQbXn0B1SRqzHar6dCnv9oZFPEC1g1cwlkk=" crossorigin="anonymous">
@@ -49,10 +54,10 @@
   </a>
   <ul class="dropdown-menu" role="menu">
 <li>
-      <a href="../articles/bagging.html">Bagging with FastSurvivalSVM</a>
+      <a href="../articles/FastSurvivalSVM-wavelet-kernel.html">Using Custom Kernels with FastSurvivalSVM: The Wavelet Kernel</a>
     </li>
     <li>
-      <a href="../articles/FastSurvivalSVM-wavelet-kernel.html">Using Custom Kernels with FastSurvivalSVM: The Wavelet Kernel</a>
+      <a href="../articles/random_machines.html">Advanced Guide: Custom Kernels and Random Machines</a>
     </li>
   </ul>
 </li>
@@ -82,7 +87,7 @@ Wavelet Kernel</h1>
                         <h4 data-toc-skip class="author">Pedro Rafael
 Diniz Marinho</h4>
             
-            <h4 data-toc-skip class="date">2025-12-06</h4>
+            <h4 data-toc-skip class="date">2025-12-09</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/prdm0/FastSurvivalSVM/blob/HEAD/vignettes/FastSurvivalSVM-wavelet-kernel.Rmd" class="external-link"><code>vignettes/FastSurvivalSVM-wavelet-kernel.Rmd</code></a></small>
       <div class="hidden name"><code>FastSurvivalSVM-wavelet-kernel.Rmd</code></div>
@@ -106,7 +111,7 @@ functions</strong>.</p>
 <ul>
 <li>How to construct custom kernels in R<br>
 </li>
-<li>How to use them within <code><a href="../reference/fast_kernel_surv_svm_fit.html">fast_kernel_surv_svm_fit()</a></code><br>
+<li>How to use them within <code>fast_kernel_surv_svm_fit()</code><br>
 </li>
 <li>How to fit models using the <strong>wavelet kernel</strong> from the
 article <em>SVM Wavelet (Ará et al., 2016)</em><br>
@@ -221,7 +226,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <h2 id="fitting-the-model">Fitting the model<a class="anchor" aria-label="anchor" href="#fitting-the-model"></a>
 </h2>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">fit_wavelet</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/fast_kernel_surv_svm_fit.html">fast_kernel_surv_svm_fit</a></span><span class="op">(</span></span>
+<code class="sourceCode R"><span><span class="va">fit_wavelet</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/fastsvm.html">fastsvm</a></span><span class="op">(</span></span>
 <span>  data       <span class="op">=</span> <span class="va">df</span>,</span>
 <span>  time_col   <span class="op">=</span> <span class="st">"tempo"</span>,</span>
 <span>  delta_col  <span class="op">=</span> <span class="st">"cens"</span>,</span>
@@ -245,7 +250,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <h2 id="concordance-index">Concordance Index<a class="anchor" aria-label="anchor" href="#concordance-index"></a>
 </h2>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/score_fastsvm.html">score_fastsvm</a></span><span class="op">(</span><span class="va">fit_wavelet</span>, <span class="va">df</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/score.html">score</a></span><span class="op">(</span><span class="va">fit_wavelet</span>, <span class="va">df</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 0.9372507</span></span></code></pre></div>
 <hr>
 </div>
@@ -360,7 +365,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <span><span class="co">#&gt; NULL</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $kernel</span></span>
-<span><span class="co">#&gt; &lt;function make_python_function.&lt;locals&gt;.python_function at 0x12895fb00&gt;</span></span>
+<span><span class="co">#&gt; &lt;function make_python_function.&lt;locals&gt;.python_function at 0x12e927b00&gt;</span></span>
 <span><span class="co">#&gt;  signature: (*args, **kwargs)</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $kernel_params</span></span>
