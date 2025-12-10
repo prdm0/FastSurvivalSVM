@@ -2,20 +2,52 @@
 % Please edit documentation in R/tune.R
 \name{create_kernel_variants}
 \alias{create_kernel_variants}
-\title{Helper to create variants of a custom kernel function}
+\title{Helper to create variants of a custom kernel function for Tuning}
 \usage{
 create_kernel_variants(kernel_factory, ...)
 }
 \arguments{
-\item{kernel_factory}{A function that takes numeric parameters and returns a
-kernel function of signature \code{function(x, z)}.}
+\item{kernel_factory}{A function (factory) that takes numeric parameters
+as arguments and returns a kernel function with signature
+\code{function(x, z)}. See examples.}
 
-\item{...}{Vectors of parameters to expand (e.g., a = c(1, 2)).}
+\item{...}{Vectors of parameters to expand (e.g., \code{a = c(1, 2)}).}
 }
 \value{
-A named list of kernel functions ready for \code{tune_fastsvm}.
+A named list of R functions. Each function has attributes 
+  \code{"kernel_name"} and \code{"kernel_args"} for easy identification.
 }
 \description{
-Generates a list of kernel functions with hardcoded parameters for tuning.
-This bridges the gap between R closures and Python's GridSearchCV.
+Generates a list of kernel functions with hardcoded parameters for use in
+\code{\link{tune_fastsvm}}. This bridges the gap between R closures (functions
+with memory) and Python's \code{GridSearchCV}.
+}
+\details{
+Unlike standard functions, the kernels generated here carry metadata 
+(class \code{"fastsvm_custom_kernel"}) allowing them to be printed legibly
+and their parameters accessed via the \code{$} operator.
+}
+\examples{
+# 1. Define a factory for a Wavelet kernel
+#    Notice the use of force() to handle lazy evaluation.
+make_wavelet <- function(a = 1) {
+  force(a)
+  function(x, z) {
+    u <- (as.numeric(x) - as.numeric(z)) / a
+    prod(cos(1.75 * u) * exp(-0.5 * u^2))
+  }
+}
+
+# 2. Create variants with different 'a' values
+k_list <- create_kernel_variants(make_wavelet, a = c(0.5, 1.0))
+
+# 3. Inspect the list (names are descriptive)
+print(names(k_list))
+#> [1] "custom_a=0.5" "custom_a=1"
+
+# 4. Access parameters directly using $
+k <- k_list[[1]]
+print(k)      # <FastSurvivalSVM Kernel: custom_a=0.5>
+print(k$a)    # 0.5
+
 }

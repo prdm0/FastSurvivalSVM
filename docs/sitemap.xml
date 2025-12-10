@@ -8,6 +8,7 @@
 <url><loc>/articles/random_machines.html</loc></url>
 <url><loc>/authors.html</loc></url>
 <url><loc>/index.html</loc></url>
+<url><loc>/reference/cash-.fastsvm_custom_kernel.html</loc></url>
 <url><loc>/reference/coef.fastsvm.html</loc></url>
 <url><loc>/reference/create_kernel_variants.html</loc></url>
 <url><loc>/reference/data_generation.html</loc></url>
@@ -27,8 +28,11 @@
 <url><loc>/reference/print.fastsvm.html</loc></url>
 <url><loc>/reference/print.fastsvm_bag.html</loc></url>
 <url><loc>/reference/print.fastsvm_bagging.html</loc></url>
+<url><loc>/reference/print.fastsvm_custom_kernel.html</loc></url>
+<url><loc>/reference/print.fastsvm_grid.html</loc></url>
 <url><loc>/reference/print.fastsvm_multi_grid.html</loc></url>
 <url><loc>/reference/print.random_machines.html</loc></url>
+<url><loc>/reference/print.random_machines_tune.html</loc></url>
 <url><loc>/reference/print.summary.fastsvm.html</loc></url>
 <url><loc>/reference/random_machines.html</loc></url>
 <url><loc>/reference/score.fastsvm.html</loc></url>
@@ -40,5 +44,6 @@
 <url><loc>/reference/summary.fastsvm.html</loc></url>
 <url><loc>/reference/tune_fastsvm.html</loc></url>
 <url><loc>/reference/tune_fastsvm_all.html</loc></url>
+<url><loc>/reference/tune_random_machines.html</loc></url>
 </urlset>
 

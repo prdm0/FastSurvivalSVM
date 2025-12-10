@@ -61,13 +61,17 @@
           <p class="section-desc"></p>
         </th>
       </tr></tbody><tbody><tr><td>
+          <p><code><a href="cash-.fastsvm_custom_kernel.html">`$`(<i>&lt;fastsvm_custom_kernel&gt;</i>)</a></code> </p>
+        </td>
+        <td><p>Accessor for Custom Kernel Parameters</p></td>
+      </tr><tr><td>
           <p><code><a href="coef.fastsvm.html">coef(<i>&lt;fastsvm&gt;</i>)</a></code> </p>
         </td>
         <td><p>Extract sample-wise coefficients (alpha_i) from a fastsvm model</p></td>
       </tr><tr><td>
           <p><code><a href="create_kernel_variants.html">create_kernel_variants()</a></code> </p>
         </td>
-        <td><p>Helper to create variants of a custom kernel function</p></td>
+        <td><p>Helper to create variants of a custom kernel function for Tuning</p></td>
       </tr><tr><td>
           <p><code><a href="data_generation.html">data_generation()</a></code> </p>
         </td>
@@ -81,10 +85,6 @@
         </td>
         <td><p>Extract hyperparameters of a fastsvm model</p></td>
       </tr><tr><td>
-          <p><code><a href="mc.html">mc()</a></code> </p>
-        </td>
-        <td><p>Monte Carlo Simulation: Bagging vs Individual Kernels</p></td>
-      </tr><tr><td>
           <p><code><a href="predict.fastsvm.html">predict(<i>&lt;fastsvm&gt;</i>)</a></code> </p>
         </td>
         <td><p>Predict risk scores or transformed survival times from a fastsvm model</p></td>
@@ -97,13 +97,21 @@
         </td>
         <td><p>Print method for fastsvm objects</p></td>
       </tr><tr><td>
-          <p><code><a href="print.fastsvm_multi_grid.html">print(<i>&lt;fastsvm_multi_grid&gt;</i>)</a></code> </p>
+          <p><code><a href="print.fastsvm_custom_kernel.html">print(<i>&lt;fastsvm_custom_kernel&gt;</i>)</a></code> </p>
         </td>
-        <td><p>Print method for multi-kernel results</p></td>
+        <td><p>Print method for custom kernels</p></td>
+      </tr><tr><td>
+          <p><code><a href="print.fastsvm_grid.html">print(<i>&lt;fastsvm_grid&gt;</i>)</a></code> </p>
+        </td>
+        <td><p>Print method for single tuning result</p></td>
       </tr><tr><td>
           <p><code><a href="print.random_machines.html">print(<i>&lt;random_machines&gt;</i>)</a></code> </p>
         </td>
         <td><p>Print method for random_machines</p></td>
+      </tr><tr><td>
+          <p><code><a href="print.random_machines_tune.html">print(<i>&lt;random_machines_tune&gt;</i>)</a></code> </p>
+        </td>
+        <td><p>Print method for Random Machines tuning results</p></td>
       </tr><tr><td>
           <p><code><a href="print.summary.fastsvm.html">print(<i>&lt;summary.fastsvm&gt;</i>)</a></code> </p>
         </td>
@@ -131,11 +139,11 @@
       </tr><tr><td>
           <p><code><a href="tune_fastsvm.html">tune_fastsvm()</a></code> </p>
         </td>
-        <td><p>Single Grid Search for FastKernelSurvivalSVM (Internal)</p></td>
+        <td><p>Single Grid Search for FastKernelSurvivalSVM (Internal Wrapper)</p></td>
       </tr><tr><td>
-          <p><code><a href="tune_fastsvm_all.html">tune_fastsvm_all()</a></code> </p>
+          <p><code><a href="tune_random_machines.html">tune_random_machines()</a></code> </p>
         </td>
-        <td><p>Multi-Kernel Grid Search (Tuning All Kernels)</p></td>
+        <td><p>Multi-Kernel Tuning for Random Machines</p></td>
       </tr></tbody></table></div>
 
   <div class="col-md-3 hidden-xs hidden-sm" id="pkgdown-sidebar">
