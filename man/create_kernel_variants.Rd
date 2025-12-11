@@ -43,11 +43,11 @@ k_list <- create_kernel_variants(make_wavelet, a = c(0.5, 1.0))
 
 # 3. Inspect the list (names are descriptive)
 print(names(k_list))
-#> [1] "custom_a=0.5" "custom_a=1"
+#> [1] "a=0.5" "a=1"
 
 # 4. Access parameters directly using $
 k <- k_list[[1]]
-print(k)      # <FastSurvivalSVM Kernel: custom_a=0.5>
+print(k)      # <FastSurvivalSVM Kernel: a=0.5>
 print(k$a)    # 0.5
 
 }

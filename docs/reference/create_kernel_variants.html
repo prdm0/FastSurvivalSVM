@@ -114,11 +114,11 @@ and their parameters accessed via the <code>$</code> operator.</p>
 <span class="r-in"><span><span class="co"># 3. Inspect the list (names are descriptive)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">k_list</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] "a=0.5" "a=1"  </span>
-<span class="r-in"><span><span class="co">#&gt; [1] "custom_a=0.5" "custom_a=1"</span></span></span>
+<span class="r-in"><span><span class="co">#&gt; [1] "a=0.5" "a=1"</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># 4. Access parameters directly using $</span></span></span>
 <span class="r-in"><span><span class="va">k</span> <span class="op">&lt;-</span> <span class="va">k_list</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span></span></span>
-<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">k</span><span class="op">)</span>      <span class="co"># &lt;FastSurvivalSVM Kernel: custom_a=0.5&gt;</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">k</span><span class="op">)</span>      <span class="co"># &lt;FastSurvivalSVM Kernel: a=0.5&gt;</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #0000BB;">&lt;FastSurvivalSVM Kernel&gt;</span>: <span style="font-weight: bold;">a=0.5</span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">k</span><span class="op">$</span><span class="va">a</span><span class="op">)</span>    <span class="co"># 0.5</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] 0.5</span>

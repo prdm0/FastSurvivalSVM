@@ -11,97 +11,125 @@ tune_random_machines(
   kernel_mix,
   param_grids,
   cv = 5L,
-  n_jobs = 1L,
+  cores = parallel::detectCores(),
   verbose = 0L,
   ...
 )
 }
 \arguments{
-\item{data}{A \code{data.frame} containing training data.}
+\item{data}{Training data frame.}
 
-\item{time_col}{Name of the time column.}
+\item{time_col}{Time column name.}
 
-\item{delta_col}{Name of the event column (1=event, 0=censored).}
+\item{delta_col}{Event column name.}
 
-\item{kernel_mix}{A named list defining the base configuration for each kernel.
-Each element should be a list with at least the \code{kernel} parameter.}
+\item{kernel_mix}{Named list of base kernel configurations (e.g. \code{list(rbf=list(kernel="rbf"))}).}
 
-\item{param_grids}{A named list of parameter grids corresponding to \code{kernel_mix}.
-The names must match the names in \code{kernel_mix}. Each element is a list
-of parameters to vary.}
+\item{param_grids}{Named list of parameter grids corresponding to \code{kernel_mix}.}
 
-\item{cv}{Number of cross-validation folds (default: 5).}
+\item{cv}{Number of folds (default 5).}
 
-\item{n_jobs}{Number of parallel jobs for grid search. See guidelines.}
+\item{cores}{Number of parallel cores (default: \code{parallel::detectCores()}).}
 
 \item{verbose}{Verbosity level (0 or 1).}
 
 \item{...}{Additional fixed parameters passed to all estimators.}
 }
 \value{
-An object of class \code{"random_machines_tune"}, containing the tuning
-  results for each kernel.
+An object of class \code{"random_machines_tune"}.
 }
 \description{
 Orchestrates hyperparameter tuning for multiple kernels simultaneously.
-This function allows you to define a list of kernel configurations (similar to
-\code{\link{random_machines}}) and a corresponding list of parameter grids,
-finding the best hyperparameters for each kernel type.
 }
-\section{Parallelization Guidelines}{
+\section{Parallelization Details}{
 
+The \code{cores} parameter is passed down to the individual tuning function.
 \itemize{
-  \item Use \code{n_jobs = parallel::detectCores()} if ALL kernels in the list are built-in strings (e.g., "rbf", "linear").
-  \item Use \code{n_jobs = 1} if ANY kernel in the list is a custom R function.
+  \item For native kernels (strings), parallelism is handled via Scikit-Learn (efficient multithreading).
+  \item For custom kernels (R functions), parallelism is managed via \pkg{mirai} (R multiprocessing).
 }
 }
 
 \examples{
 \dontrun{
-if (reticulate::py_module_available("sksurv")) {
+if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
   library(FastSurvivalSVM)
-  set.seed(42)
-  df <- data_generation(n = 200, prop_cen = 0.3)
-
-  # --- 1. Define Base Kernels ---
-  make_wav <- function(a=1) { force(a); function(x,z) {
-     u<-(as.numeric(x)-as.numeric(z))/a; prod(cos(1.75*u)*exp(-0.5*u^2))
-  }}
   
-  base_kernels <- list(
+  # 1. Generate data
+  set.seed(123)
+  df <- data_generation(n = 200, prop_cen = 0.3)
+  
+  # =========================================================================
+  # Example 1: Standard Kernels (Pure Python Parallelism)
+  # =========================================================================
+  # We define 3 standard kernels: Linear, RBF, and Polynomial.
+  # These use Python's joblib for very efficient multi-threading.
+  
+  kmix_std <- list(
+    linear = list(kernel = "linear"),
+    rbf    = list(kernel = "rbf"),
+    poly   = list(kernel = "poly", degree = 2) # Base degree 2
+  )
+  
+  grids_std <- list(
+    linear = list(alpha = c(0.1, 1, 10)),
+    rbf    = list(alpha = c(0.1, 1), gamma = c(0.01, 0.1)),
+    poly   = list(alpha = c(0.1, 1), coef0 = c(0, 1))
+  )
+  
+  # Run tuning using all available cores
+  res_std <- tune_random_machines(
+    data = df, time_col = "tempo", delta_col = "cens",
+    kernel_mix = kmix_std,
+    param_grids = grids_std,
+    cv = 5,
+    cores = parallel::detectCores(),
+    verbose = 1
+  )
+  print(res_std)
+
+  # =========================================================================
+  # Example 2: Mixed Kernels (Native + Custom R Function)
+  # =========================================================================
+  # Here we mix standard kernels with a custom Wavelet kernel defined in R.
+  # The function detects the custom kernel and switches to 'mirai' parallelism.
+  
+  # A. Define Custom Wavelet Factory
+  make_wav <- function(a=1) { 
+    force(a)
+    function(x,z) {
+      u<-(as.numeric(x)-as.numeric(z))/a
+      prod(cos(1.75*u)*exp(-0.5*u^2))
+    }
+  }
+  
+  # B. Define Kernel Mix
+  kmix_custom <- list(
     linear  = list(kernel = "linear"),
     rbf     = list(kernel = "rbf"),
-    wavelet = list(kernel = make_wav(a=1)) # Initial placeholder
+    wavelet = list(kernel = make_wav(a=1)) # R function
   )
-
-  # --- 2. Define Grids for Tuning ---
-  # For custom kernels, use create_kernel_variants in the grid!
-  wav_vars <- create_kernel_variants(make_wav, a=c(0.5, 1.0, 2.0))
   
-  tuning_grids <- list(
-    linear  = list(alpha = c(0.1, 1, 10)),
-    rbf     = list(alpha = c(0.1, 1), gamma = c(0.01, 0.1)),
-    wavelet = list(alpha = c(0.1, 1), kernel = wav_vars) # Tune 'a' via kernel variants
+  # C. Define Grids (Wavelet varies 'a' using helper)
+  wav_vars <- create_kernel_variants(make_wav, a = c(0.5, 2.0))
+  
+  grids_custom <- list(
+    linear  = list(alpha = c(0.1, 1)),
+    rbf     = list(alpha = c(0.1, 1)),
+    wavelet = list(alpha = c(0.1, 1), kernel = wav_vars)
   )
-
-  # --- 3. Run Tuning ---
-  # n_jobs=1 because we have a custom wavelet kernel
-  results <- tune_random_machines(
+  
+  # D. Run Tuning
+  # 'cores' > 1 will activate mirai for the custom kernel part.
+  res_custom <- tune_random_machines(
     data = df, time_col = "tempo", delta_col = "cens",
-    kernel_mix = base_kernels,
-    param_grids = tuning_grids,
-    cv = 3, n_jobs = 1, verbose = 1
+    kernel_mix = kmix_custom,
+    param_grids = grids_custom,
+    cv = 5,
+    cores = parallel::detectCores(),
+    verbose = 1
   )
-
-  # --- 4. Inspect Results ---
-  print(results)
-  
-  # Access best params
-  print(results$rbf$best_params)
-  
-  # Access best 'a' for wavelet
-  best_wav <- results$wavelet$best_params$kernel
-  cat("Best wavelet 'a':", best_wav$a, "\n")
+  print(res_custom)
 }
 }
 

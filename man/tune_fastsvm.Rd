@@ -2,7 +2,7 @@
 % Please edit documentation in R/tune.R
 \name{tune_fastsvm}
 \alias{tune_fastsvm}
-\title{Single Grid Search for FastKernelSurvivalSVM (Internal Wrapper)}
+\title{Single Grid Search for FastKernelSurvivalSVM}
 \usage{
 tune_fastsvm(
   data,
@@ -10,25 +10,25 @@ tune_fastsvm(
   delta_col = "delta",
   param_grid,
   cv = 5L,
-  n_jobs = 1L,
+  cores = parallel::detectCores(),
   verbose = 0L,
   refit = TRUE,
   ...
 )
 }
 \arguments{
-\item{data}{A \code{data.frame} containing training data.}
+\item{data}{Training data frame.}
 
-\item{time_col}{Name of the time column.}
+\item{time_col}{Time column name.}
 
-\item{delta_col}{Name of the event column (1=event, 0=censored).}
+\item{delta_col}{Event column name.}
 
 \item{param_grid}{A named list (or list of lists) of parameters to tune.
 Example: \code{list(alpha = c(0.1, 1), rank_ratio = c(0, 1))}.}
 
-\item{cv}{Number of cross-validation folds (default: 5).}
+\item{cv}{Number of folds (default 5).}
 
-\item{n_jobs}{Number of parallel jobs for grid search. See guidelines.}
+\item{cores}{Number of parallel cores (default: \code{parallel::detectCores()}).}
 
 \item{verbose}{Verbosity level (0 or 1).}
 
@@ -39,78 +39,93 @@ Example: \code{list(alpha = c(0.1, 1), rank_ratio = c(0, 1))}.}
 \value{
 An object of class \code{"fastsvm_grid"} containing:
   \itemize{
-    \item \code{best_params}: A named list of the optimal parameters. If a custom
-          kernel was selected, this will be the R function object (use \code{$param} to access values).
-    \item \code{best_score}: The mean cross-validated concordance index.
-    \item \code{cv_results}: A data frame summarizing results for all grid combinations.
+    \item \code{best_params}: A named list of optimal parameters.
+    \item \code{best_score}: The best mean cross-validated C-index.
+    \item \code{cv_results}: A data frame summarizing the search history.
+    \item \code{best_estimator}: The fitted model object (if \code{refit=TRUE}).
   }
 }
 \description{
-A wrapper around \code{sklearn.model_selection.GridSearchCV} to tune a
-single kernel configuration (estimator). Uses \code{cli} for elegant output.
+Executes a grid search to optimize hyperparameters for a single kernel configuration.
+Uses cross-validation to evaluate the C-index.
 }
-\section{Parallelization Guidelines}{
+\section{Parallelization Strategy}{
 
-The \code{n_jobs} parameter controls parallelization within Python's GridSearchCV.
+The \code{cores} argument controls how computation is distributed:
 \itemize{
-  \item \strong{Built-in Kernels}: If you use standard kernels passed as strings 
-        (e.g., \code{"rbf"}, \code{"linear"}), you can safely use parallel processing. 
-        Set \code{n_jobs = parallel::detectCores()} or any integer > 1.
-  \item \strong{Custom R Kernels}: If you pass \strong{R functions} as kernels, 
-        you \strong{MUST} set \code{n_jobs = 1}. Python's \code{joblib} cannot 
-        serialize (pickle) R functions to worker processes. Using \code{n_jobs > 1} 
-        will cause the process to hang or crash with serialization errors.
+  \item \strong{Standard Kernels ("rbf", "linear", etc.):} If the kernel is a string,
+        the function uses Python's `GridSearchCV` native parallelism (via `joblib`).
+        This is extremely fast and efficient.
+        
+  \item \strong{Custom R Kernels:} If the kernel is an R function, `scikit-learn`
+        cannot parallelize natively (pickle error). In this case, the function
+        automatically detects it and uses the \pkg{mirai} package to distribute
+        grid candidates across parallel R workers. Each worker runs cross-validation
+        for one candidate serially.
 }
 }
 
 \examples{
 \dontrun{
-if (reticulate::py_module_available("sksurv")) {
+if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
   library(FastSurvivalSVM)
+  
   set.seed(42)
-  df <- data_generation(n = 200, prop_cen = 0.3)
+  # Generate dummy data
+  df <- data.frame(
+    time = rexp(100),
+    event = rbinom(100, 1, 0.7),
+    x1 = rnorm(100), x2 = rnorm(100)
+  )
 
-  # --- Example 1: Tuning Standard RBF (Parallel) ---
-  # Native strings allow full parallelization.
+  # --- Example 1: Standard Kernel (RBF) ---
+  # Uses Python parallelism (very fast)
   grid_rbf <- list(
     kernel = "rbf",
-    alpha  = c(0.01, 0.1, 1),
+    alpha  = c(0.1, 1),
     gamma  = c(0.01, 0.1)
   )
   
   res_rbf <- tune_fastsvm(
-    data = df, time_col = "tempo", delta_col = "cens",
-    param_grid = grid_rbf, cv = 3, 
-    n_jobs = parallel::detectCores(), # Safe!
+    data = df, 
+    time_col = "time", delta_col = "event",
+    param_grid = grid_rbf,
+    cv = 3, 
+    cores = parallel::detectCores(), # Use all cores
     verbose = 1
   )
   print(res_rbf)
 
-  # --- Example 2: Tuning Custom Kernel (Serial) ---
+  # --- Example 2: Custom Kernel (Wavelet) ---
+  # Uses R parallelism (mirai) automatically
+  
   # 1. Define Factory
-  make_wav <- function(a=1) { force(a); function(x,z) {
-     u<-(as.numeric(x)-as.numeric(z))/a; prod(cos(1.75*u)*exp(-0.5*u^2))
-  }}
+  make_wav <- function(a=1) { 
+    force(a)
+    function(x,z) {
+      u<-(as.numeric(x)-as.numeric(z))/a
+      prod(cos(1.75*u)*exp(-0.5*u^2))
+    }
+  }
   
   # 2. Create Variants
-  wav_vars <- create_kernel_variants(make_wav, a=c(0.5, 2.0))
+  wav_vars <- create_kernel_variants(make_wav, a = c(0.5, 2.0))
   
   grid_wav <- list(
     kernel = wav_vars,
-    alpha = c(0.1, 1.0)
+    alpha  = c(0.1, 1)
   )
   
-  # 3. Tune (n_jobs=1 mandatory)
+  # 3. Tune (cores > 1 activates mirai backend)
   res_wav <- tune_fastsvm(
-    data = df, time_col = "tempo", delta_col = "cens",
-    param_grid = grid_wav, cv = 3, 
-    n_jobs = 1, # Must be 1 for R functions
+    data = df, 
+    time_col = "time", delta_col = "event",
+    param_grid = grid_wav,
+    cv = 3, 
+    cores = parallel::detectCores(), # Use all cores
     verbose = 1
   )
-  
-  # 4. Accessing the chosen 'a' parameter
-  best_k <- res_wav$best_params$kernel
-  cat("Best 'a':", best_k$a, "\n") # Access via $ works!
+  print(res_wav)
 }
 }
 
