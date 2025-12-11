@@ -1,0 +1,331 @@
+---
+title: "Complete Workflow: From Tuning to Random Machines (Fast Example)"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Complete Workflow: From Tuning to Random Machines (Fast Example)}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>"
+)
+```
+
+# Introduction
+
+The **FastSurvivalSVM** package allows you to build powerful ensembles called
+**Random Survival Machines**. To get the best performance, it is crucial not
+just to run the ensemble, but to **tune the base learners (kernels)** first.
+
+This vignette presents the same complete workflow as the full version, but
+with a **smaller dataset and reduced grids** so that it runs quickly in typical
+vignette environments (e.g. CRAN checks or CI).
+
+We will:
+
+- **Define 4 Kernels**:  
+  Two standard (Linear, RBF) and two custom (Wavelet, Polynomial).
+
+- **Hybrid Tuning** (lightweight):  
+  Optimize all 4 kernels simultaneously using a **small grid** and at most
+  **two cores**.
+
+- **Extraction**:  
+  Automatically extract the best hyperparameters.
+
+- **Ensemble**:  
+  Train the final Random Machine using the optimized configurations.
+
+> For real applications, you are encouraged to increase the sample size,
+> expand the grids, and use more cores.
+
+**Prerequisites**
+
+- Python installed with the `scikit-survival` package available.
+- R packages: `FastSurvivalSVM`, `survival`, `reticulate`, `mirai`, `cli`.
+
+---
+
+# 1. Data Generation
+
+We generate a compact synthetic dataset with non-linear survival patterns.
+We split it into a Training Set (used for tuning and training) and a Test Set
+(used only for final evaluation).
+
+```{r}
+library(FastSurvivalSVM)
+library(survival)
+
+set.seed(123)
+
+# Generate 120 samples with 30% censoring (smaller than the full vignette)
+df <- data_generation(n = 120, prop_cen = 0.3)
+
+# Split: 80 Train / 40 Test
+train_idx <- sample(seq_len(nrow(df)), 80)
+train_df  <- df[train_idx, ]
+test_df   <- df[-train_idx, ]
+
+head(train_df)
+```
+
+---
+
+# 2. Defining Custom Kernels
+
+We define two custom kernels. To make their parameters tunable (such as the
+scale parameter `A` in the Wavelet kernel or `degree` in the Polynomial kernel),
+we use the **function factory** pattern.
+
+## 2.1 Wavelet Kernel
+
+This kernel is useful for capturing local variations in the covariates.
+
+\[
+K(x,z)=\prod \cos\left(\frac{1.75}{A}(x-z)\right)
+              \exp\left(-0.5\left(\frac{x-z}{A}\right)^2\right)
+\]
+
+```{r}
+make_wavelet <- function(A = 1) {
+  force(A) # Freeze the value of A inside the closure
+  function(x, z) {
+    u <- (as.numeric(x) - as.numeric(z)) / A
+    prod(cos(1.75 * u) * exp(-0.5 * u^2))
+  }
+}
+```
+
+## 2.2 Custom Polynomial Kernel
+
+A manual implementation of the polynomial kernel.
+
+```{r}
+make_poly <- function(degree = 2, coef0 = 1) {
+  force(degree); force(coef0)
+  function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
+}
+```
+
+---
+
+# 3. Setting up the Tuning Grid (Fast Version)
+
+We use `tune_random_machines()` to optimize 4 different kernel configurations
+at once. To keep the vignette fast, we adopt **very small grids**.
+
+## 3.1 Base Configurations
+
+These are the settings that remain constant or default. For the custom kernels,
+we do not define the kernel function here; we will pass variants of it in the
+grid.
+
+```{r}
+kernel_mix <- list(
+  # Standard Kernels (Strings)
+  linear_std = list(kernel = "linear", fit_intercept = TRUE, rank_ratio = 0),
+  rbf_std    = list(kernel = "rbf",    fit_intercept = TRUE, rank_ratio = 0),
+
+  # Custom Kernels (Functions)
+  # The kernel function itself will come from the grid.
+  wavelet_custom = list(fit_intercept = TRUE, rank_ratio = 0),
+  poly_custom    = list(fit_intercept = TRUE, rank_ratio = 0)
+)
+```
+
+## 3.2 Hyperparameter Grids (Minimal)
+
+To ensure the vignette runs quickly, we use **very compact grids**:
+
+- Standard Kernels:
+  - Linear: 2 values of `alpha`.
+  - RBF: 2 values of `alpha` and a single value of `gamma`.
+
+- Custom Kernels:
+  - Wavelet: 1 value of `A`, 1 value of `alpha`.
+  - Polynomial: 1 value of `(degree, coef0)`, 1 value of `alpha`.
+
+```{r}
+# Variants for custom kernels (minimal grid)
+wavelet_variants <- create_kernel_variants(make_wavelet, A = 1)
+poly_variants    <- create_kernel_variants(make_poly, degree = 2, coef0 = 1)
+
+param_grids <- list(
+  # 1. Linear: Tune regularization (alpha)
+  linear_std = list(
+    alpha = c(0.1, 1)
+  ),
+
+  # 2. RBF: Tune regularization (alpha) and width (gamma)
+  rbf_std = list(
+    alpha = c(0.1, 1),
+    gamma = 0.1
+  ),
+
+  # 3. Wavelet: Tune kernel variant (A) and alpha (tiny grid)
+  wavelet_custom = list(
+    kernel = wavelet_variants, 
+    alpha  = 0.1
+  ),
+
+  # 4. Polynomial: Tune kernel variant (degree/coef0) and alpha (tiny grid)
+  poly_custom = list(
+    kernel = poly_variants,
+    alpha  = 0.1
+  )
+)
+```
+
+---
+
+# 4. Executing the Tuning (Lightweight)
+
+We run the tuning process with:
+
+- **3-fold cross-validation** (`cv = 3`);  
+- At most **two cores** (`cores = min(2L, detectCores())`);  
+- Very small grids (defined above).
+
+This keeps run time low while still demonstrating the complete workflow.
+
+```{r}
+# Number of cores for a fast vignette
+fast_cores <- min(2L, parallel::detectCores())
+
+# Check dependencies before running parallel code in vignette
+if (reticulate::py_module_available("sksurv") && 
+    requireNamespace("mirai", quietly = TRUE)) {
+
+  tune_results <- tune_random_machines(
+    data        = train_df,
+    time_col    = "tempo",
+    delta_col   = "cens",
+    kernel_mix  = kernel_mix,
+    param_grids = param_grids,
+    cv          = 3,              # 3-fold CV for speed
+    cores       = fast_cores,     # At most 2 cores
+    verbose     = 1
+  )
+
+  print(tune_results)
+}
+```
+
+---
+
+# 5. Extracting Optimal Parameters
+
+We now extract the best configuration for each kernel so we can pass them to
+the final Random Machines ensemble.
+
+The `tune_results` object is a list where each element contains a
+`$best_params` entry. We merge these best parameters with our original
+`kernel_mix`.
+
+```{r}
+if (exists("tune_results")) {
+
+  # Initialize a list for the optimized kernels
+  best_kernels <- list()
+
+  # Iterate through names (linear_std, rbf_std, etc.)
+  for (kname in names(tune_results)) {
+
+    # 1. Get the base configuration
+    base_config <- kernel_mix[[kname]]
+
+    # 2. Get the winner parameters from tuning
+    winner_params <- tune_results[[kname]]$best_params
+
+    # 3. Merge them (winner params overwrite defaults if collision exists)
+    final_config <- utils::modifyList(base_config, winner_params)
+
+    best_kernels[[kname]] <- final_config
+  }
+
+  # Inspect one of them to verify
+  cat("Best RBF Configuration (fast example):\n")
+  print(best_kernels$rbf_std)
+}
+```
+
+---
+
+# 6. Training Random Machines (Fast Configuration)
+
+With our `best_kernels` list, we train the Random Machines ensemble using
+a **small number of bootstrap replications** and at most two cores.
+
+- `B = 20`: 20 bootstrap models (instead of 100).
+- `mtry = 2`: Each model sees a subset of two covariates.
+- `prop_holdout = 0.2`: 20% internal holdout to weight kernels.
+- `crop = NULL`: We skip kernel dropping for simplicity and speed.
+
+```{r}
+if (exists("best_kernels")) {
+
+  rm_model <- random_machines(
+    data         = train_df,
+    newdata      = test_df,     # Needed for immediate prediction logic
+    time_col     = "tempo",
+    delta_col    = "cens",
+    kernels      = best_kernels, # PASSING THE TUNED KERNELS
+    B            = 20,           # Fewer bootstrap models (fast)
+    mtry         = 2,            # Random subspace
+    prop_holdout = 0.2,          # Internal split for kernel weighting
+    crop         = NULL,         # No kernel dropping here
+    cores        = fast_cores,   # At most 2 cores
+    seed         = 99,
+    .progress    = TRUE
+  )
+
+  print(rm_model)
+}
+```
+
+The printed summary shows:
+
+- **Kernel Usage**: How often each kernel was selected in the bootstrap.
+- **Kernel Weights**: The relative importance of each kernel based on the
+  internal holdout.
+
+---
+
+# 7. Final Evaluation
+
+We evaluate the tuned ensemble on the independent test set using the C-index.
+
+```{r}
+if (exists("rm_model")) {
+  final_c_index <- score(rm_model, test_df)
+
+  cli::cli_alert_success(
+    "Final Test C-index (fast example): {.val {round(final_c_index, 4)}}"
+  )
+}
+```
+
+---
+
+# Summary
+
+In this fast-running vignette, you have:
+
+- Defined **custom mathematical functions** as kernels (wavelet and polynomial).
+- Tuned them alongside standard kernels (linear and RBF) using
+  `tune_random_machines()` with a *minimal* grid.
+- Extracted the best configurations.
+- Built a **Random Machines** ensemble using only a small dataset, few
+  bootstrap replications, and at most two cores, making the full workflow
+  suitable for vignettes and automated checks.
+
+For production or research use, you can:
+
+- Increase the sample size (`n` in `data_generation()`),
+- Expand the hyperparameter grids (more `alpha`, `gamma`, `A`, `degree`,
+  `coef0` values),
+- Increase `cv`, `B`, and `cores` to fully exploit your hardware and obtain
+  more stable performance estimates.
