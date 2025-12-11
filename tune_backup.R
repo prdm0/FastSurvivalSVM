@@ -38,11 +38,11 @@
 #' 
 #' # 3. Inspect the list (names are descriptive)
 #' print(names(k_list))
-#' #> [1] "custom_a=0.5" "custom_a=1"
+#' #> [1] "a=0.5" "a=1"
 #' 
 #' # 4. Access parameters directly using $
 #' k <- k_list[[1]]
-#' print(k)      # <FastSurvivalSVM Kernel: custom_a=0.5>
+#' print(k)      # <FastSurvivalSVM Kernel: a=0.5>
 #' print(k$a)    # 0.5
 #'
 #' @export
@@ -54,22 +54,25 @@ create_kernel_variants <- function(kernel_factory, ...) {
     current_args <- as.list(args_grid[i, , drop = FALSE])
     k_func <- do.call(kernel_factory, current_args)
 
-    # Formatar nome limpo (ex: "a=1_b=2") para exibição
+    # Format clean name (e.g., "a=1_b=2") for display
     fmt_args <- lapply(current_args, function(x) if(is.numeric(x)) round(x, 4) else x)
     name <- paste(names(fmt_args), fmt_args, sep = "=", collapse = "_")
 
-    # Anexar metadados ao objeto função
+    # Attach metadata
     attr(k_func, "kernel_name") <- name
     attr(k_func, "kernel_args") <- current_args
     class(k_func) <- c("fastsvm_custom_kernel", class(k_func))
 
-    # O nome na lista ajuda a identificar no grid search
+    # The name in the list helps identification in grid search
     kernel_list[[name]] <- k_func
   }
   return(kernel_list)
 }
 
 #' Print method for custom kernels
+#' 
+#' @param x An object of class \code{"fastsvm_custom_kernel"}.
+#' @param ... Additional arguments passed to methods.
 #' @export
 print.fastsvm_custom_kernel <- function(x, ...) {
   if (requireNamespace("cli", quietly = TRUE)) {
@@ -107,7 +110,7 @@ print.fastsvm_custom_kernel <- function(x, ...) {
 }
 
 # Emulate Sklearn ParameterGrid in R (ROBUST VERSION)
-# This creates the exact list of candidate parameter sets that sklearn generated.
+# Creates the exact list of candidate parameter sets that sklearn would generate.
 # By matching indices, we can retrieve the original R kernel object (with attributes)
 # instead of the opaque Python wrapper returned by reticulate.
 .flatten_sklearn_grid <- function(param_grid) {
@@ -150,21 +153,23 @@ print.fastsvm_custom_kernel <- function(x, ...) {
 #  PART 3: Tuning Functions
 # ==============================================================================
 
-#' Single Grid Search for FastKernelSurvivalSVM (Internal Wrapper)
+#' Single Grid Search for FastKernelSurvivalSVM
 #'
-#' A wrapper around \code{sklearn.model_selection.GridSearchCV} to tune a
-#' single kernel configuration (estimator). Uses \code{cli} for elegant output.
+#' Executes a grid search to optimize hyperparameters for a single kernel configuration.
+#' Uses cross-validation to evaluate the C-index.
 #'
-#' @section Parallelization Guidelines:
-#' The \code{n_jobs} parameter controls parallelization within Python's GridSearchCV.
+#' @section Parallelization Strategy:
+#' The \code{cores} argument controls how computation is distributed:
 #' \itemize{
-#'   \item \strong{Built-in Kernels}: If you use standard kernels passed as strings 
-#'         (e.g., \code{"rbf"}, \code{"linear"}), you can safely use parallel processing. 
-#'         Set \code{n_jobs = parallel::detectCores()} or any integer > 1.
-#'   \item \strong{Custom R Kernels}: If you pass \strong{R functions} as kernels, 
-#'         you \strong{MUST} set \code{n_jobs = 1}. Python's \code{joblib} cannot 
-#'         serialize (pickle) R functions to worker processes. Using \code{n_jobs > 1} 
-#'         will cause the process to hang or crash with serialization errors.
+#'   \item \strong{Standard Kernels ("rbf", "linear", etc.):} If the kernel is a string,
+#'         the function uses Python's `GridSearchCV` native parallelism (via `joblib`).
+#'         This is extremely fast and efficient.
+#'         
+#'   \item \strong{Custom R Kernels:} If the kernel is an R function, `scikit-learn`
+#'         cannot parallelize natively (pickle error). In this case, the function
+#'         automatically detects it and uses the \pkg{mirai} package to distribute
+#'         grid candidates across parallel R workers. Each worker runs cross-validation
+#'         for one candidate serially.
 #' }
 #'
 #' @inheritParams tune_random_machines
@@ -174,60 +179,74 @@ print.fastsvm_custom_kernel <- function(x, ...) {
 #'
 #' @return An object of class \code{"fastsvm_grid"} containing:
 #'   \itemize{
-#'     \item \code{best_params}: A named list of the optimal parameters. If a custom
-#'           kernel was selected, this will be the R function object (use \code{$param} to access values).
-#'     \item \code{best_score}: The mean cross-validated concordance index.
-#'     \item \code{cv_results}: A data frame summarizing results for all grid combinations.
+#'     \item \code{best_params}: A named list of optimal parameters.
+#'     \item \code{best_score}: The best mean cross-validated C-index.
+#'     \item \code{cv_results}: A data frame summarizing the search history.
+#'     \item \code{best_estimator}: The fitted model object (if \code{refit=TRUE}).
 #'   }
 #'
 #' @examples
 #' \dontrun{
-#' if (reticulate::py_module_available("sksurv")) {
+#' if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly = TRUE)) {
 #'   library(FastSurvivalSVM)
+#'   
+#'   # --- Data Generation ---
 #'   set.seed(42)
 #'   df <- data_generation(n = 200, prop_cen = 0.3)
 #'
-#'   # --- Example 1: Tuning Standard RBF (Parallel) ---
-#'   # Native strings allow full parallelization.
+#'   # =========================================================================
+#'   # CASE 1: Standard Kernel (RBF) - Uses Python Parallelism
+#'   # =========================================================================
+#'   # We want to tune 'alpha' and the RBF 'gamma' parameter.
+#'   
 #'   grid_rbf <- list(
 #'     kernel = "rbf",
-#'     alpha  = c(0.01, 0.1, 1),
-#'     gamma  = c(0.01, 0.1)
+#'     alpha  = c(0.01, 1, 10),
+#'     gamma  = c(0.001, 0.01, 0.1)
 #'   )
 #'   
 #'   res_rbf <- tune_fastsvm(
-#'     data = df, time_col = "tempo", delta_col = "cens",
-#'     param_grid = grid_rbf, cv = 3, 
-#'     n_jobs = parallel::detectCores(), # Safe!
+#'     data = df, 
+#'     time_col = "tempo", delta_col = "cens",
+#'     param_grid = grid_rbf,
+#'     cv = 3, 
+#'     cores = 2, # Passed to Python's joblib
 #'     verbose = 1
 #'   )
 #'   print(res_rbf)
 #'
-#'   # --- Example 2: Tuning Custom Kernel (Serial) ---
-#'   # 1. Define Factory
-#'   make_wav <- function(a=1) { force(a); function(x,z) {
-#'      u<-(as.numeric(x)-as.numeric(z))/a; prod(cos(1.75*u)*exp(-0.5*u^2))
-#'   }}
+#'   # =========================================================================
+#'   # CASE 2: Custom Kernel in R - Uses mirai Parallelism
+#'   # =========================================================================
 #'   
-#'   # 2. Create Variants
-#'   wav_vars <- create_kernel_variants(make_wav, a=c(0.5, 2.0))
+#'   # 1. Define a Kernel Factory (e.g., simple Sum-Product kernel)
+#'   make_sumprod <- function(bias = 0) { 
+#'     force(bias)
+#'     function(x, z) {
+#'       prod(as.numeric(x) * as.numeric(z)) + bias
+#'     }
+#'   }
 #'   
-#'   grid_wav <- list(
-#'     kernel = wav_vars,
-#'     alpha = c(0.1, 1.0)
+#'   # 2. Create variants to tune the 'bias' parameter
+#'   #    This creates a list of functions with metadata
+#'   k_variants <- create_kernel_variants(make_sumprod, bias = c(0, 1, 5))
+#'   
+#'   # 3. Define grid
+#'   grid_custom <- list(
+#'     kernel = k_variants,   # The kernel function itself is a parameter
+#'     alpha  = c(0.1, 1)     # Standard regularization
 #'   )
 #'   
-#'   # 3. Tune (n_jobs=1 mandatory)
-#'   res_wav <- tune_fastsvm(
-#'     data = df, time_col = "tempo", delta_col = "cens",
-#'     param_grid = grid_wav, cv = 3, 
-#'     n_jobs = 1, # Must be 1 for R functions
+#'   # 4. Tune (Automatically detects custom kernel -> switches to mirai)
+#'   res_custom <- tune_fastsvm(
+#'     data = df, 
+#'     time_col = "tempo", delta_col = "cens",
+#'     param_grid = grid_custom,
+#'     cv = 3, 
+#'     cores = 2, # Starts 2 background R daemons
 #'     verbose = 1
 #'   )
-#'   
-#'   # 4. Accessing the chosen 'a' parameter
-#'   best_k <- res_wav$best_params$kernel
-#'   cat("Best 'a':", best_k$a, "\n") # Access via $ works!
+#'   print(res_custom)
 #' }
 #' }
 #'
@@ -238,27 +257,22 @@ tune_fastsvm <- function(
   delta_col  = "delta",
   param_grid,
   cv         = 5L,
-  n_jobs     = 1L,
+  cores      = parallel::detectCores(),
   verbose    = 0L,
   refit      = TRUE,
   ...
 ) {
-  # --- Input Validation ---
-  if (!is.data.frame(data)) stop("Argument `data` must be a data.frame.", call. = FALSE)
+  # --- Validation ---
+  if (!is.data.frame(data)) stop("Argument `data` must be a data.frame.")
   if (!time_col %in% names(data)) stop(sprintf("Column '%s' not found.", time_col))
   if (!delta_col %in% names(data)) stop(sprintf("Column '%s' not found.", delta_col))
 
-  # --- Setup CLI & Emojis ---
+  # --- UI Setup ---
   has_cli <- requireNamespace("cli", quietly = TRUE)
   has_emo <- requireNamespace("emo", quietly = TRUE)
   ji <- function(x, f="") if(has_emo) emo::ji(x) else f
   
-  if (verbose > 0 && has_cli) {
-    cli::cli_h2(paste(ji("gear"), "Starting Grid Search Tuning"))
-    cli::cli_alert_info("CV Folds: {cv} | Parallel Jobs: {n_jobs}")
-  }
-
-  # --- Imports ---
+  # --- Imports & Setup ---
   sklearn_sel <- reticulate::import("sklearn.model_selection", delay_load = TRUE)
   sksvm_mod   <- reticulate::import("sksurv.svm", delay_load = TRUE)
   sksurv_util <- reticulate::import("sksurv.util", delay_load = TRUE)
@@ -267,27 +281,160 @@ tune_fastsvm <- function(
   # --- Data Prep ---
   x_cols <- setdiff(names(data), c(time_col, delta_col))
   X_mat  <- as.matrix(data[, x_cols, drop = FALSE])
+  
+  # Extract vectors for safe passing to workers
+  time_vec  <- as.numeric(data[[time_col]])
+  event_vec <- as.logical(data[[delta_col]])
+  
   y_surv <- sksurv_util$Surv$from_arrays(
-    event = as.logical(data[[delta_col]]), 
-    time  = as.numeric(data[[time_col]])
+    event = event_vec, 
+    time  = time_vec
   )
 
-  # --- Estimator ---
-  fixed_args <- list(...)
-  for (p in c("max_iter", "degree", "random_state", "verbose")) {
-    if (!is.null(fixed_args[[p]])) fixed_args[[p]] <- as.integer(fixed_args[[p]])
+  # --- Detect Custom Kernel ---
+  is_custom_kernel <- function(grid) {
+    check_val <- function(x) is.function(x) || inherits(x, "fastsvm_custom_kernel")
+    if (is.list(grid) && is.null(names(grid))) { # List of lists
+      any(vapply(grid, function(g) any(vapply(g, function(v) any(vapply(v, check_val, logical(1))), logical(1))), logical(1)))
+    } else {
+      any(vapply(grid, function(v) any(vapply(v, check_val, logical(1))), logical(1)))
+    }
   }
-  estimator <- do.call(sksvm_mod$FastKernelSurvivalSVM, fixed_args)
+  
+  has_custom <- is_custom_kernel(param_grid)
+  use_r_parallel <- has_custom && (cores > 1L) && requireNamespace("mirai", quietly = TRUE)
 
-  # --- Grid Sanitization ---
+  # ============================================================================
+  # BRANCH 1: R Parallelism (Mirai) - For Custom Kernels
+  # ============================================================================
+  if (use_r_parallel) {
+    if (verbose > 0 && has_cli) {
+      cli::cli_alert_info("Custom kernel detected. Using R parallelism (mirai) on {cores} cores.")
+    }
+    
+    candidates <- .flatten_sklearn_grid(param_grid)
+    
+    # Setup Workers
+    mirai::daemons(cores, dispatcher = TRUE)
+    on.exit(mirai::daemons(0), add = TRUE)
+    
+    # Worker Function
+    run_candidate <- function(params, X, time, event, cv, fixed_args) {
+      if (!requireNamespace("reticulate", quietly = TRUE)) return(-Inf)
+      
+      # Attempt to load package, otherwise safe imports
+      try(requireNamespace("FastSurvivalSVM", quietly = TRUE), silent = TRUE)
+      
+      # Python Setup inside worker
+      if (!reticulate::py_available(initialize = TRUE)) reticulate::py_config()
+      # Suppress warnings in worker
+      try(reticulate::py_run_string("import warnings; warnings.simplefilter('ignore')"), silent = TRUE)
+      
+      sk_ms  <- reticulate::import("sklearn.model_selection")
+      sksvm  <- reticulate::import("sksurv.svm")
+      skutil <- reticulate::import("sksurv.util")
+      
+      # Reconstruct Y inside worker
+      y_inner <- skutil$Surv$from_arrays(event = event, time = time)
+      
+      # Extract kernel function
+      k_func <- params$kernel
+      
+      # Prepare args
+      fit_args <- c(fixed_args, params)
+      fit_args$kernel <- NULL 
+      
+      if (is.function(k_func)) {
+        py_k <- function(x, z) k_func(as.numeric(x), as.numeric(z))
+        fit_args$kernel <- py_k
+      } else {
+        fit_args$kernel <- k_func
+      }
+      
+      est <- do.call(sksvm$FastKernelSurvivalSVM, fit_args)
+      
+      # Run CV (Serial inside worker to avoid pickle errors)
+      scores <- sk_ms$cross_val_score(est, X, y_inner, cv = as.integer(cv), n_jobs = 1L)
+      mean(scores)
+    }
+    
+    # Dispatch
+    if (verbose > 0 && has_cli) cli::cli_progress_step("Evaluating {length(candidates)} candidates...", spinner = TRUE)
+    
+    fixed_args <- list(...)
+    promises <- purrr::map(candidates, function(cand) {
+      mirai::mirai(
+        run_candidate(cand, X_mat, time_vec, event_vec, cv, fixed_args),
+        run_candidate = run_candidate, cand = cand, 
+        X_mat = X_mat, time_vec = time_vec, event_vec = event_vec,
+        cv = cv, fixed_args = fixed_args
+      )
+    })
+    
+    # Collect Safely
+    scores <- purrr::map_dbl(promises, function(p) {
+      out <- mirai::call_mirai(p)$data
+      # Error handling
+      if (inherits(out, "miraiError") || inherits(out, "error")) return(-Inf)
+      if (!is.numeric(out)) return(-Inf)
+      out
+    })
+    
+    # Find Best
+    best_idx    <- which.max(scores)
+    best_score  <- scores[best_idx]
+    best_params <- candidates[[best_idx]]
+    
+    # Refit (Serial in main process)
+    best_estimator <- NULL
+    if (refit && is.finite(best_score)) {
+      final_args <- c(fixed_args, best_params)
+      if (is.function(final_args$kernel)) {
+        k_r <- final_args$kernel
+        final_args$kernel <- function(x, z) k_r(as.numeric(x), as.numeric(z))
+      }
+      best_estimator <- do.call(sksvm_mod$FastKernelSurvivalSVM, final_args)
+      best_estimator$fit(X_mat, y_surv)
+    }
+    
+    # Result Table
+    cv_results <- data.frame(
+      mean_test_score = scores,
+      rank_test_score = rank(-scores)
+    )
+    
+    if (verbose > 0 && has_cli) {
+      cli::cli_progress_done()
+      cli::cli_alert_success("Tuning complete. Best C-index: {.val {round(best_score, 4)}}")
+    }
+    
+    return(structure(
+      list(
+        grid_search_obj = NULL, 
+        best_estimator  = best_estimator, 
+        best_params     = .simplify_params(best_params),
+        best_score      = best_score,
+        cv_results      = cv_results,
+        x_cols = x_cols, time_col = time_col, delta_col = delta_col
+      ),
+      class = "fastsvm_grid"
+    ))
+  }
+
+  # ============================================================================
+  # BRANCH 2: Python Parallelism (Joblib) - For Standard Kernels or Serial
+  # ============================================================================
+  
+  if (verbose > 0 && has_cli) {
+    cli::cli_h2(paste(ji("gear"), "Starting Grid Search Tuning"))
+    cli::cli_alert_info("CV Folds: {cv} | Cores: {cores}")
+  }
+
+  # Sanitize Grid
   sanitize_single <- function(block) {
     lapply(block, function(val) {
       if (is.function(val)) return(list(val))
-      if (is.list(val) && length(val) > 0) {
-        if (is.function(val[[1]]) || inherits(val[[1]], "fastsvm_custom_kernel")) {
-          return(unname(val)) # Fix for named lists of functions
-        }
-      }
+      if (is.list(val) && length(val) > 0 && (is.function(val[[1]]) || inherits(val[[1]], "fastsvm_custom_kernel"))) return(unname(val))
       if (!is.list(val) && !is.vector(val)) return(list(val))
       if (length(val) == 1 && !is.list(val)) return(list(val))
       as.list(val)
@@ -296,10 +443,19 @@ tune_fastsvm <- function(
   is_composite <- is.list(param_grid) && is.null(names(param_grid))
   clean_grid <- if (is_composite) lapply(param_grid, sanitize_single) else sanitize_single(param_grid)
 
-  # --- Fit ---
+  # Estimator
+  fixed_args <- list(...)
+  for (p in c("max_iter", "degree", "random_state", "verbose")) {
+    if (!is.null(fixed_args[[p]])) fixed_args[[p]] <- as.integer(fixed_args[[p]])
+  }
+  estimator <- do.call(sksvm_mod$FastKernelSurvivalSVM, fixed_args)
+
+  # If custom kernel present but cores=1, enforce n_jobs=1
+  py_n_jobs <- if (has_custom) 1L else as.integer(cores)
+
   gs_instance <- sklearn_sel$GridSearchCV(
     estimator = estimator, param_grid = clean_grid, cv = as.integer(cv),
-    n_jobs = if (is.null(n_jobs)) NULL else as.integer(n_jobs),
+    n_jobs = py_n_jobs,
     verbose = as.integer(0),
     refit = refit
   )
@@ -310,51 +466,42 @@ tune_fastsvm <- function(
     gs_instance$fit(X_mat, y_surv)
   }, error = function(e) {
     if (grepl("pickle", e$message, ignore.case = TRUE)) {
-      stop("Pickle Error: Set 'n_jobs = 1' when using custom R kernels.", call. = FALSE)
+      stop("Pickle Error: Ensure 'cores = 1' is used for custom R kernels if mirai is unavailable.", call. = FALSE)
     } else {
       stop(e)
     }
   })
 
-  # --- Result Reconstruction (The Fix) ---
+  # Result Reconstruction
   best_idx   <- tryCatch(as.integer(gs_instance$best_index_) + 1L, error = function(e) NULL)
   best_score <- tryCatch(as.numeric(gs_instance$best_score_), error = function(e) NA)
   
-  # Rebuild candidate list in R
   r_candidates <- .flatten_sklearn_grid(clean_grid)
-  
-  # Get Best Params (Original R Objects)
-  best_params <- if (!is.null(best_idx) && best_idx <= length(r_candidates)) {
-    r_candidates[[best_idx]]
-  } else {
-    tryCatch(reticulate::py_to_r(gs_instance$best_params_), error = function(e) NULL)
-  }
-  
+  best_params <- if (!is.null(best_idx) && best_idx <= length(r_candidates)) r_candidates[[best_idx]] else list()
   best_params <- .simplify_params(best_params)
 
-  # --- CV Results Table ---
   py_res <- tryCatch(reticulate::py_to_r(gs_instance$cv_results_), error = function(e) NULL)
   
   cv_results <- NULL
   if (!is.null(py_res)) {
-    params_df <- do.call(rbind, lapply(r_candidates, function(row) {
-      lapply(row, function(val) {
-        if (inherits(val, "fastsvm_custom_kernel")) return(attr(val, "kernel_name"))
-        if (is.function(val)) return("<function>")
-        val
-      })
-    }))
-    params_df <- as.data.frame(params_df, stringsAsFactors = FALSE)
-    # Simplify columns
-    params_df[] <- lapply(params_df, function(x) if(is.list(x)) unlist(x) else x)
-    colnames(params_df) <- paste0("param_", colnames(params_df))
+    # Attempt to rebuild readable table
+    params_df <- tryCatch({
+      df <- do.call(rbind, lapply(r_candidates, function(row) {
+        lapply(row, function(val) {
+          if (inherits(val, "fastsvm_custom_kernel")) return(attr(val, "kernel_name"))
+          if (is.function(val)) return("<function>")
+          val
+        })
+      }))
+      as.data.frame(df, stringsAsFactors = FALSE)
+    }, error = function(e) NULL)
     
     scores_df <- data.frame(
       mean_test_score = as.numeric(py_res$mean_test_score),
-      std_test_score  = as.numeric(py_res$std_test_score),
       rank_test_score = as.integer(py_res$rank_test_score)
     )
-    cv_results <- cbind(scores_df, params_df)
+    
+    cv_results <- if(!is.null(params_df)) cbind(scores_df, params_df) else scores_df
   }
 
   if (verbose > 0 && has_cli) {
@@ -378,81 +525,109 @@ tune_fastsvm <- function(
 #' Multi-Kernel Tuning for Random Machines
 #'
 #' Orchestrates hyperparameter tuning for multiple kernels simultaneously.
-#' This function allows you to define a list of kernel configurations (similar to
-#' \code{\link{random_machines}}) and a corresponding list of parameter grids,
-#' finding the best hyperparameters for each kernel type.
-#'
-#' @section Parallelization Guidelines:
+#' This function allows mixing **native scikit-learn kernels** (string based)
+#' and **custom R kernels** (function based) in a single tuning session.
+#' 
+#' @section Parallelization Details:
+#' The \code{cores} parameter is passed down to the individual tuning function.
 #' \itemize{
-#'   \item Use \code{n_jobs = parallel::detectCores()} if ALL kernels in the list are built-in strings (e.g., "rbf", "linear").
-#'   \item Use \code{n_jobs = 1} if ANY kernel in the list is a custom R function.
+#'   \item For native kernels (strings), parallelism is handled via Scikit-Learn (efficient multithreading).
+#'   \item For custom kernels (R functions), parallelism is managed via \pkg{mirai} (R multiprocessing).
 #' }
 #'
-#' @param data A \code{data.frame} containing training data.
-#' @param time_col Name of the time column.
-#' @param delta_col Name of the event column (1=event, 0=censored).
-#' @param kernel_mix A named list defining the base configuration for each kernel.
-#'   Each element should be a list with at least the \code{kernel} parameter.
-#' @param param_grids A named list of parameter grids corresponding to \code{kernel_mix}.
-#'   The names must match the names in \code{kernel_mix}. Each element is a list
-#'   of parameters to vary.
-#' @param cv Number of cross-validation folds (default: 5).
-#' @param n_jobs Number of parallel jobs for grid search. See guidelines.
+#' @param data Training data frame.
+#' @param time_col Time column name.
+#' @param delta_col Event column name.
+#' @param kernel_mix Named list of base kernel configurations (e.g. \code{list(rbf=list(kernel="rbf"))}).
+#' @param param_grids Named list of parameter grids corresponding to \code{kernel_mix}.
+#' @param cv Number of folds (default 5).
+#' @param cores Number of parallel cores (default: \code{parallel::detectCores()}).
 #' @param verbose Verbosity level (0 or 1).
 #' @param ... Additional fixed parameters passed to all estimators.
 #'
-#' @return An object of class \code{"random_machines_tune"}, containing the tuning
-#'   results for each kernel.
+#' @return An object of class \code{"random_machines_tune"}.
 #'
 #' @examples
 #' \dontrun{
-#' if (reticulate::py_module_available("sksurv")) {
+#' if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly=TRUE)) {
 #'   library(FastSurvivalSVM)
-#'   set.seed(42)
-#'   df <- data_generation(n = 200, prop_cen = 0.3)
-#'
-#'   # --- 1. Define Base Kernels ---
-#'   make_wav <- function(a=1) { force(a); function(x,z) {
-#'      u<-(as.numeric(x)-as.numeric(z))/a; prod(cos(1.75*u)*exp(-0.5*u^2))
-#'   }}
 #'   
-#'   base_kernels <- list(
-#'     linear  = list(kernel = "linear"),
-#'     rbf     = list(kernel = "rbf"),
-#'     wavelet = list(kernel = make_wav(a=1)) # Initial placeholder
+#'   set.seed(99)
+#'   df <- data_generation(n = 200, prop_cen = 0.25)
+#'
+#'   # =========================================================================
+#'   # Setup: Hybrid Tuning (Native + Custom Kernels)
+#'   # =========================================================================
+#'   
+#'   # 1. Prepare Custom Kernel Variants (e.g. Wavelet)
+#'   make_wavelet <- function(A = 1) {
+#'     force(A)
+#'     function(x, z) {
+#'       u <- (as.numeric(x) - as.numeric(z)) / A
+#'       prod(cos(1.75 * u) * exp(-0.5 * u^2))
+#'     }
+#'   }
+#'   wav_variants <- create_kernel_variants(make_wavelet, A = c(0.5, 2.0))
+#'
+#'   # 2. Define Base Configurations (The "Mix")
+#'   #    Notice we can mix "rbf" (string) and custom functions.
+#'   mix <- list(
+#'     # A. Native Scikit-learn Kernel
+#'     my_rbf = list(
+#'       kernel = "rbf",
+#'       rank_ratio = 0.5  # Fixed param for this kernel
+#'     ),
+#'     
+#'     # B. Native Linear Kernel
+#'     my_linear = list(
+#'       kernel = "linear",
+#'       rank_ratio = 0.0
+#'     ),
+#'     
+#'     # C. Custom R Kernel
+#'     my_wavelet = list(
+#'       # We don't set 'kernel' here because we will tune it in the grid
+#'       rank_ratio = 1.0
+#'     )
 #'   )
 #'
-#'   # --- 2. Define Grids for Tuning ---
-#'   # For custom kernels, use create_kernel_variants in the grid!
-#'   wav_vars <- create_kernel_variants(make_wav, a=c(0.5, 1.0, 2.0))
-#'   
-#'   tuning_grids <- list(
-#'     linear  = list(alpha = c(0.1, 1, 10)),
-#'     rbf     = list(alpha = c(0.1, 1), gamma = c(0.01, 0.1)),
-#'     wavelet = list(alpha = c(0.1, 1), kernel = wav_vars) # Tune 'a' via kernel variants
+#'   # 3. Define Grids for each member of the Mix
+#'   #    The names must match the 'mix' list.
+#'   grids <- list(
+#'     # Tune alpha and gamma for RBF
+#'     my_rbf = list(
+#'       alpha = c(0.1, 10),
+#'       gamma = c(0.01, 0.1)
+#'     ),
+#'     
+#'     # Tune only alpha for Linear
+#'     my_linear = list(
+#'       alpha = c(0.01, 1)
+#'     ),
+#'     
+#'     # Tune the kernel function itself (A=0.5 vs A=2.0) and alpha
+#'     my_wavelet = list(
+#'       kernel = wav_variants,
+#'       alpha  = c(0.1, 1)
+#'     )
 #'   )
 #'
-#'   # --- 3. Run Tuning ---
-#'   # n_jobs=1 because we have a custom wavelet kernel
-#'   results <- tune_random_machines(
-#'     data = df, time_col = "tempo", delta_col = "cens",
-#'     kernel_mix = base_kernels,
-#'     param_grids = tuning_grids,
-#'     cv = 3, n_jobs = 1, verbose = 1
+#'   # 4. Run Hybrid Tuning
+#'   #    - 'my_rbf' and 'my_linear' will use Python parallelism (fast)
+#'   #    - 'my_wavelet' will use mirai parallelism (robust)
+#'   tune_results <- tune_random_machines(
+#'     data = df,
+#'     time_col = "tempo", delta_col = "cens",
+#'     kernel_mix = mix,
+#'     param_grids = grids,
+#'     cv = 3,
+#'     cores = 2,
+#'     verbose = 1
 #'   )
-#'
-#'   # --- 4. Inspect Results ---
-#'   print(results)
 #'   
-#'   # Access best params
-#'   print(results$rbf$best_params)
-#'   
-#'   # Access best 'a' for wavelet
-#'   best_wav <- results$wavelet$best_params$kernel
-#'   cat("Best wavelet 'a':", best_wav$a, "\n")
+#'   print(tune_results)
 #' }
 #' }
-#' 
 #' @export
 tune_random_machines <- function(
   data,
@@ -461,43 +636,30 @@ tune_random_machines <- function(
   kernel_mix,
   param_grids,
   cv        = 5L,
-  n_jobs    = 1L,
+  cores     = parallel::detectCores(),
   verbose   = 0L,
   ...
 ) {
-  # Validations
-  if (!is.data.frame(data)) stop("Argument `data` must be a data.frame.", call. = FALSE)
-  if (!is.list(kernel_mix) || is.null(names(kernel_mix))) stop("`kernel_mix` must be a named list.")
-  if (!is.list(param_grids) || is.null(names(param_grids))) stop("`param_grids` must be a named list.")
-  
+  if (!is.data.frame(data)) stop("Argument `data` must be a data.frame.")
   common_names <- intersect(names(kernel_mix), names(param_grids))
-  if (length(common_names) == 0) stop("No matching names between `kernel_mix` and `param_grids`.")
-
-  # UI Setup
-  has_cli <- requireNamespace("cli", quietly = TRUE)
-  has_emo <- requireNamespace("emo", quietly = TRUE)
-  ji <- function(x, f="") if(has_emo) emo::ji(x) else f
-
-  results <- list()
   
-  if (verbose > 0 && has_cli) {
-    cli::cli_h1(paste(ji("rocket"), "Multi-Kernel Tuning Session"))
-    cli::cli_alert_info("Optimizing {length(common_names)} kernel configurations.")
-    cli::cli_rule()
+  if (verbose > 0 && requireNamespace("cli", quietly=TRUE)) {
+    cli::cli_h1("Multi-Kernel Tuning Session")
+    cli::cli_alert_info("Optimizing {length(common_names)} kernel configurations on {cores} cores.")
   }
+  
+  results <- list()
   
   for (kname in common_names) {
     base_def <- kernel_mix[[kname]]
     grid_def <- param_grids[[kname]]
     
-    if (verbose > 0 && has_cli) {
-      cli::cli_h2(paste(ji("mag"), "Tuning: {.strong {kname}}"))
+    if (verbose > 0 && requireNamespace("cli", quietly=TRUE)) {
+      cli::cli_h2(paste("Tuning:", kname))
     }
     
-    # Prepare arguments for this specific kernel fit
-    # We take the base definition (e.g. kernel="rbf") and pass it as fixed args
-    # But we remove any key that is present in the grid (so grid takes precedence)
     fixed_args <- base_def
+    # Remove from fixed args anything that varies in the grid
     for (p in names(grid_def)) fixed_args[[p]] <- NULL
     
     res <- tryCatch({
@@ -508,19 +670,19 @@ tune_random_machines <- function(
           delta_col  = delta_col,
           param_grid = grid_def,
           cv         = cv,
-          n_jobs     = n_jobs,
-          verbose    = 0, # Inner verbose off
+          cores      = cores, # Pass cores down
+          verbose    = 0,     # Silence internal
           refit      = TRUE
         ),
-        fixed_args, # Pass remaining base params (e.g. kernel="rbf")
-        list(...)   # Pass global extra params
+        fixed_args, 
+        list(...)
       ))
     }, error = function(e) {
-      if (has_cli) cli::cli_alert_danger("Failed: {e$message}")
+      if (requireNamespace("cli", quietly=TRUE)) cli::cli_alert_danger("Failed: {e$message}")
       NULL
     })
     
-    if (verbose > 0 && !is.null(res) && has_cli) {
+    if (verbose > 0 && !is.null(res) && requireNamespace("cli", quietly=TRUE)) {
       cli::cli_alert_success("Best C-index: {.val {round(res$best_score, 4)}}")
     }
     results[[kname]] <- res
@@ -530,15 +692,18 @@ tune_random_machines <- function(
 }
 
 # -------------------------------------------------------------------
-# S3 Methods
+# S3 Print Methods
 # -------------------------------------------------------------------
 
 #' Print method for Random Machines tuning results
+#' 
+#' @param x An object of class \code{"random_machines_tune"}.
+#' @param ... Additional arguments passed to methods.
+#' 
 #' @export
 print.random_machines_tune <- function(x, ...) {
   if (requireNamespace("cli", quietly = TRUE)) {
     cli::cli_h1("Random Machines Tuning Summary")
-    
     df <- data.frame(
       Kernel = names(x),
       C_Index = sapply(x, function(mod) if(is.null(mod)) NA else mod$best_score),
@@ -546,40 +711,110 @@ print.random_machines_tune <- function(x, ...) {
     )
     df <- df[order(df$C_Index, decreasing = TRUE), ]
     print(df, row.names = FALSE)
-    
   } else {
-    cat("\nRandom Machines Tuning Summary\n")
     print(x) 
   }
   invisible(x)
 }
 
 #' Print method for single tuning result
+#' 
+#' @param x An object of class \code{"fastsvm_grid"}.
+#' @param ... Additional arguments passed to methods.
+#' 
 #' @export
 print.fastsvm_grid <- function(x, ...) {
   if (requireNamespace("cli", quietly = TRUE)) {
     cli::cli_div(theme = list(span.emph = list(color = "blue")))
     cli::cli_h2("Grid Search Result")
     cli::cli_alert_success("Best C-Index: {.val {round(x$best_score, 4)}}")
-    
     cli::cli_text("{.strong Best Parameters:}")
     cli::cli_ul()
-    
     params <- x$best_params
     for (nm in names(params)) {
       val <- params[[nm]]
-      val_print <- if (inherits(val, "fastsvm_custom_kernel")) {
-        attr(val, "kernel_name") 
-      } else {
-        as.character(val)
-      }
+      val_print <- if (inherits(val, "fastsvm_custom_kernel")) attr(val, "kernel_name") else as.character(val)
       cli::cli_li("{.emph {nm}}: {val_print}")
     }
     cli::cli_end()
-    
   } else {
     cat(sprintf("Best C-Index: %.4f\n", x$best_score))
     print(x$best_params)
   }
   invisible(x)
+}
+
+# -------------------------------------------------------------------
+# Helper para Facilidade de Uso (Workflow Bridge)
+# -------------------------------------------------------------------
+
+#' Prepare Tuned Kernels for Random Machines
+#'
+#' A convenience function that merges the optimized hyperparameters found by
+#' \code{\link{tune_random_machines}} into the original base kernel configuration.
+#' The resulting list is formatted specifically to be passed directly to the
+#' \code{kernels} argument of \code{\link{random_machines}}.
+#'
+#' This eliminates the need to manually extract \code{best_params} and use
+#' \code{modifyList} in your workflow.
+#'
+#' @param tune_results An object of class \code{"random_machines_tune"} returned
+#'   by \code{\link{tune_random_machines}}.
+#' @param kernel_mix The original named list of base kernel configurations that was
+#'   passed to \code{tune_random_machines}. This is required to preserve
+#'   fixed parameters (like \code{rank_ratio} or \code{fit_intercept}) that
+#'   were not part of the tuning grid.
+#'
+#' @return A named list of fully specified kernel configurations, ready for training.
+#'
+#' @examples
+#' \dontrun{
+#'   # ... (See full workflow in vignette)
+#'   
+#'   # Automatic Extraction
+#'   final_kernels <- as_kernels(tune_results, kernel_mix)
+#'   
+#'   # Train Final Model
+#'   model <- random_machines(..., kernels = final_kernels, ...)
+#' }
+#' @export
+as_kernels <- function(tune_results, kernel_mix) {
+  if (!inherits(tune_results, "random_machines_tune")) {
+    stop("Argument 'tune_results' must be of class 'random_machines_tune'.")
+  }
+  
+  # Validate consistency
+  tune_names <- names(tune_results)
+  mix_names  <- names(kernel_mix)
+  
+  missing_in_mix <- setdiff(tune_names, mix_names)
+  if (length(missing_in_mix) > 0) {
+    warning("The following kernels in tuning results are not present in kernel_mix: ",
+            paste(missing_in_mix, collapse = ", "))
+  }
+  
+  # Helper to merge a single kernel result
+  merge_one <- function(kname) {
+    base_conf <- kernel_mix[[kname]]
+    
+    # If base config is missing (edge case), return just the tuned params
+    if (is.null(base_conf)) base_conf <- list()
+    
+    # If tuning failed for this kernel (NULL result), fallback to base config
+    if (is.null(tune_results[[kname]])) {
+      return(base_conf)
+    }
+    
+    # Get winner params
+    tuned_params <- tune_results[[kname]]$best_params
+    
+    # Merge: tuned params overwrite base params
+    utils::modifyList(base_conf, tuned_params)
+  }
+  
+  # Apply to all kernels present in the tuning result
+  final_list <- lapply(tune_names, merge_one)
+  names(final_list) <- tune_names
+  
+  return(final_list)
 }

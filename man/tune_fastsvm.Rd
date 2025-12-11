@@ -75,13 +75,14 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quiet
   df <- data_generation(n = 200, prop_cen = 0.3)
 
   # =========================================================================
-  # CASE 1: Standard Kernel (RBF) - Uses Python Parallelism
+  # EXAMPLE 1: Standard Kernel (RBF) - Regression Mode (rank_ratio=0)
   # =========================================================================
-  # We want to tune 'alpha' and the RBF 'gamma' parameter.
+  # We optimize 'alpha' and 'gamma' using a grid of 3 values each.
   
   grid_rbf <- list(
     kernel = "rbf",
-    alpha  = c(0.01, 1, 10),
+    rank_ratio = 0, # Regression on time
+    alpha  = c(0.01, 0.1, 1),
     gamma  = c(0.001, 0.01, 0.1)
   )
   
@@ -96,7 +97,7 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quiet
   print(res_rbf)
 
   # =========================================================================
-  # CASE 2: Custom Kernel in R - Uses mirai Parallelism
+  # EXAMPLE 2: Custom Kernel in R - Regression Mode
   # =========================================================================
   
   # 1. Define a Kernel Factory (e.g., simple Sum-Product kernel)
@@ -107,14 +108,14 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quiet
     }
   }
   
-  # 2. Create variants to tune the 'bias' parameter
-  #    This creates a list of functions with metadata
+  # 2. Create variants to tune the 'bias' parameter (3 values)
   k_variants <- create_kernel_variants(make_sumprod, bias = c(0, 1, 5))
   
-  # 3. Define grid
+  # 3. Define grid (Tune kernel variant and regularization)
   grid_custom <- list(
-    kernel = k_variants,   # The kernel function itself is a parameter
-    alpha  = c(0.1, 1)     # Standard regularization
+    kernel = k_variants,   
+    rank_ratio = 0, # Regression on time
+    alpha  = c(0.1, 1, 10)     
   )
   
   # 4. Tune (Automatically detects custom kernel -> switches to mirai)

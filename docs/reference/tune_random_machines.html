@@ -40,7 +40,7 @@ and **custom R kernels** (function based) in a single tuning session."><meta pro
       <a href="../articles/random_machines.html">Advanced Guide: Custom Kernels and Random Machines</a>
     </li>
     <li>
-      <a href="../articles/tune_and_random.html">Complete Workflow: From Tuning to Random Machines (Fast Example)</a>
+      <a href="../articles/tune_and_random.html">End-to-End Workflow: Tuning and Training Random Machines</a>
     </li>
   </ul></li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
@@ -145,10 +145,13 @@ and **custom R kernels** (function based) in a single tuning session.</p>
 <span class="r-in"><span>  <span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="data_generation.html">data_generation</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">200</span>, prop_cen <span class="op">=</span> <span class="fl">0.25</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
-<span class="r-in"><span>  <span class="co"># Setup: Hybrid Tuning (Native + Custom Kernels)</span></span></span>
+<span class="r-in"><span>  <span class="co"># Setup: Hybrid Tuning (2 Standard + 2 Custom Kernels)</span></span></span>
+<span class="r-in"><span>  <span class="co">#        Using Regression Mode (rank_ratio = 0)</span></span></span>
 <span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 1. Prepare Custom Kernel Variants (e.g. Wavelet)</span></span></span>
+<span class="r-in"><span>  <span class="co"># --- A. Define Custom Kernel Factories ---</span></span></span>
+<span class="r-in"><span>  </span></span>
+<span class="r-in"><span>  <span class="co"># 1. Wavelet Kernel</span></span></span>
 <span class="r-in"><span>  <span class="va">make_wavelet</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">A</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">A</span><span class="op">)</span></span></span>
 <span class="r-in"><span>    <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="op">{</span></span></span>
@@ -156,54 +159,61 @@ and **custom R kernels** (function based) in a single tuning session.</p>
 <span class="r-in"><span>      <span class="fu"><a href="https://rdrr.io/r/base/prod.html" class="external-link">prod</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">cos</a></span><span class="op">(</span><span class="fl">1.75</span> <span class="op">*</span> <span class="va">u</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> <span class="va">u</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span>    <span class="op">}</span></span></span>
 <span class="r-in"><span>  <span class="op">}</span></span></span>
-<span class="r-in"><span>  <span class="va">wav_variants</span> <span class="op">&lt;-</span> <span class="fu"><a href="create_kernel_variants.html">create_kernel_variants</a></span><span class="op">(</span><span class="va">make_wavelet</span>, A <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.5</span>, <span class="fl">2.0</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  </span></span>
+<span class="r-in"><span>  <span class="co"># 2. Polynomial Custom Kernel</span></span></span>
+<span class="r-in"><span>  <span class="va">make_poly_custom</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">degree</span> <span class="op">=</span> <span class="fl">2</span>, <span class="va">coef0</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span></span>
+<span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">degree</span><span class="op">)</span>; <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">coef0</span><span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span> <span class="va">coef0</span><span class="op">)</span><span class="op">^</span><span class="va">degree</span></span></span>
+<span class="r-in"><span>  <span class="op">}</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span>  <span class="co"># 2. Define Base Configurations (The "Mix")</span></span></span>
-<span class="r-in"><span>  <span class="co">#    Notice we can mix "rbf" (string) and custom functions.</span></span></span>
+<span class="r-in"><span>  <span class="co"># --- B. Define Base Configurations (The "Mix") ---</span></span></span>
+<span class="r-in"><span>  <span class="co"># We set rank_ratio = 0 for all to use regression mode.</span></span></span>
+<span class="r-in"><span>  </span></span>
 <span class="r-in"><span>  <span class="va">mix</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>    <span class="co"># A. Native Scikit-learn Kernel</span></span></span>
-<span class="r-in"><span>    my_rbf <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>      kernel <span class="op">=</span> <span class="st">"rbf"</span>,</span></span>
-<span class="r-in"><span>      rank_ratio <span class="op">=</span> <span class="fl">0.5</span>  <span class="co"># Fixed param for this kernel</span></span></span>
-<span class="r-in"><span>    <span class="op">)</span>,</span></span>
+<span class="r-in"><span>    <span class="co"># Standard 1: RBF</span></span></span>
+<span class="r-in"><span>    my_rbf <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>kernel <span class="op">=</span> <span class="st">"rbf"</span>, rank_ratio <span class="op">=</span> <span class="fl">0</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>    </span></span>
-<span class="r-in"><span>    <span class="co"># B. Native Linear Kernel</span></span></span>
-<span class="r-in"><span>    my_linear <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>      kernel <span class="op">=</span> <span class="st">"linear"</span>,</span></span>
-<span class="r-in"><span>      rank_ratio <span class="op">=</span> <span class="fl">0.0</span></span></span>
-<span class="r-in"><span>    <span class="op">)</span>,</span></span>
+<span class="r-in"><span>    <span class="co"># Standard 2: Linear</span></span></span>
+<span class="r-in"><span>    my_linear <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>kernel <span class="op">=</span> <span class="st">"linear"</span>, rank_ratio <span class="op">=</span> <span class="fl">0</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>    </span></span>
-<span class="r-in"><span>    <span class="co"># C. Custom R Kernel</span></span></span>
-<span class="r-in"><span>    my_wavelet <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>      <span class="co"># We don't set 'kernel' here because we will tune it in the grid</span></span></span>
-<span class="r-in"><span>      rank_ratio <span class="op">=</span> <span class="fl">1.0</span></span></span>
-<span class="r-in"><span>    <span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="co"># Custom 1: Wavelet (kernel function comes from grid)</span></span></span>
+<span class="r-in"><span>    my_wavelet <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>rank_ratio <span class="op">=</span> <span class="fl">0</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    </span></span>
+<span class="r-in"><span>    <span class="co"># Custom 2: Poly (kernel function comes from grid)</span></span></span>
+<span class="r-in"><span>    my_poly <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>rank_ratio <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span>  <span class="co"># 3. Define Grids for each member of the Mix</span></span></span>
-<span class="r-in"><span>  <span class="co">#    The names must match the 'mix' list.</span></span></span>
+<span class="r-in"><span>  <span class="co"># --- C. Define Grids (3 values per parameter) ---</span></span></span>
+<span class="r-in"><span>  </span></span>
+<span class="r-in"><span>  <span class="va">wav_vars</span>  <span class="op">&lt;-</span> <span class="fu"><a href="create_kernel_variants.html">create_kernel_variants</a></span><span class="op">(</span><span class="va">make_wavelet</span>, A <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.5</span>, <span class="fl">1</span>, <span class="fl">2</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="va">poly_vars</span> <span class="op">&lt;-</span> <span class="fu"><a href="create_kernel_variants.html">create_kernel_variants</a></span><span class="op">(</span><span class="va">make_poly_custom</span>, degree <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">2</span>, <span class="fl">3</span>, <span class="fl">4</span><span class="op">)</span>, coef0 <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
 <span class="r-in"><span>  <span class="va">grids</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>    <span class="co"># Tune alpha and gamma for RBF</span></span></span>
+<span class="r-in"><span>    <span class="co"># Grid for RBF: 3 alphas, 3 gammas</span></span></span>
 <span class="r-in"><span>    my_rbf <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>      alpha <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">10</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>      gamma <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>      alpha <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>      gamma <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.001</span>, <span class="fl">0.01</span>, <span class="fl">0.1</span><span class="op">)</span></span></span>
 <span class="r-in"><span>    <span class="op">)</span>,</span></span>
 <span class="r-in"><span>    </span></span>
-<span class="r-in"><span>    <span class="co"># Tune only alpha for Linear</span></span></span>
+<span class="r-in"><span>    <span class="co"># Grid for Linear: 3 alphas</span></span></span>
 <span class="r-in"><span>    my_linear <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>      alpha <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>      alpha <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span></span></span>
 <span class="r-in"><span>    <span class="op">)</span>,</span></span>
 <span class="r-in"><span>    </span></span>
-<span class="r-in"><span>    <span class="co"># Tune the kernel function itself (A=0.5 vs A=2.0) and alpha</span></span></span>
+<span class="r-in"><span>    <span class="co"># Grid for Wavelet: 3 variants, 3 alphas</span></span></span>
 <span class="r-in"><span>    my_wavelet <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>      kernel <span class="op">=</span> <span class="va">wav_variants</span>,</span></span>
-<span class="r-in"><span>      alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>      kernel <span class="op">=</span> <span class="va">wav_vars</span>,</span></span>
+<span class="r-in"><span>      alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="op">)</span>,</span></span>
+<span class="r-in"><span>    </span></span>
+<span class="r-in"><span>    <span class="co"># Grid for Poly: 3 variants, 3 alphas</span></span></span>
+<span class="r-in"><span>    my_poly <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
+<span class="r-in"><span>      kernel <span class="op">=</span> <span class="va">poly_vars</span>,</span></span>
+<span class="r-in"><span>      alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span></span></span>
 <span class="r-in"><span>    <span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span>  <span class="co"># 4. Run Hybrid Tuning</span></span></span>
-<span class="r-in"><span>  <span class="co">#    - 'my_rbf' and 'my_linear' will use Python parallelism (fast)</span></span></span>
-<span class="r-in"><span>  <span class="co">#    - 'my_wavelet' will use mirai parallelism (robust)</span></span></span>
+<span class="r-in"><span>  <span class="co"># --- D. Run Hybrid Tuning ---</span></span></span>
 <span class="r-in"><span>  <span class="va">tune_results</span> <span class="op">&lt;-</span> <span class="fu">tune_random_machines</span><span class="op">(</span></span></span>
 <span class="r-in"><span>    data <span class="op">=</span> <span class="va">df</span>,</span></span>
 <span class="r-in"><span>    time_col <span class="op">=</span> <span class="st">"tempo"</span>, delta_col <span class="op">=</span> <span class="st">"cens"</span>,</span></span>

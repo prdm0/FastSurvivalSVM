@@ -61,10 +61,13 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quiet
   df <- data_generation(n = 200, prop_cen = 0.25)
 
   # =========================================================================
-  # Setup: Hybrid Tuning (Native + Custom Kernels)
+  # Setup: Hybrid Tuning (2 Standard + 2 Custom Kernels)
+  #        Using Regression Mode (rank_ratio = 0)
   # =========================================================================
   
-  # 1. Prepare Custom Kernel Variants (e.g. Wavelet)
+  # --- A. Define Custom Kernel Factories ---
+  
+  # 1. Wavelet Kernel
   make_wavelet <- function(A = 1) {
     force(A)
     function(x, z) {
@@ -72,54 +75,61 @@ if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quiet
       prod(cos(1.75 * u) * exp(-0.5 * u^2))
     }
   }
-  wav_variants <- create_kernel_variants(make_wavelet, A = c(0.5, 2.0))
+  
+  # 2. Polynomial Custom Kernel
+  make_poly_custom <- function(degree = 2, coef0 = 1) {
+    force(degree); force(coef0)
+    function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
+  }
 
-  # 2. Define Base Configurations (The "Mix")
-  #    Notice we can mix "rbf" (string) and custom functions.
+  # --- B. Define Base Configurations (The "Mix") ---
+  # We set rank_ratio = 0 for all to use regression mode.
+  
   mix <- list(
-    # A. Native Scikit-learn Kernel
-    my_rbf = list(
-      kernel = "rbf",
-      rank_ratio = 0.5  # Fixed param for this kernel
-    ),
+    # Standard 1: RBF
+    my_rbf = list(kernel = "rbf", rank_ratio = 0),
     
-    # B. Native Linear Kernel
-    my_linear = list(
-      kernel = "linear",
-      rank_ratio = 0.0
-    ),
+    # Standard 2: Linear
+    my_linear = list(kernel = "linear", rank_ratio = 0),
     
-    # C. Custom R Kernel
-    my_wavelet = list(
-      # We don't set 'kernel' here because we will tune it in the grid
-      rank_ratio = 1.0
-    )
+    # Custom 1: Wavelet (kernel function comes from grid)
+    my_wavelet = list(rank_ratio = 0),
+    
+    # Custom 2: Poly (kernel function comes from grid)
+    my_poly = list(rank_ratio = 0)
   )
 
-  # 3. Define Grids for each member of the Mix
-  #    The names must match the 'mix' list.
+  # --- C. Define Grids (3 values per parameter) ---
+  
+  wav_vars  <- create_kernel_variants(make_wavelet, A = c(0.5, 1, 2))
+  poly_vars <- create_kernel_variants(make_poly_custom, degree = c(2, 3, 4), coef0 = 1)
+
   grids <- list(
-    # Tune alpha and gamma for RBF
+    # Grid for RBF: 3 alphas, 3 gammas
     my_rbf = list(
-      alpha = c(0.1, 10),
-      gamma = c(0.01, 0.1)
+      alpha = c(0.01, 0.1, 1),
+      gamma = c(0.001, 0.01, 0.1)
     ),
     
-    # Tune only alpha for Linear
+    # Grid for Linear: 3 alphas
     my_linear = list(
-      alpha = c(0.01, 1)
+      alpha = c(0.01, 0.1, 1)
     ),
     
-    # Tune the kernel function itself (A=0.5 vs A=2.0) and alpha
+    # Grid for Wavelet: 3 variants, 3 alphas
     my_wavelet = list(
-      kernel = wav_variants,
-      alpha  = c(0.1, 1)
+      kernel = wav_vars,
+      alpha  = c(0.01, 0.1, 1)
+    ),
+    
+    # Grid for Poly: 3 variants, 3 alphas
+    my_poly = list(
+      kernel = poly_vars,
+      alpha  = c(0.01, 0.1, 1)
     )
   )
 
-  # 4. Run Hybrid Tuning
-  #    - 'my_rbf' and 'my_linear' will use Python parallelism (fast)
-  #    - 'my_wavelet' will use mirai parallelism (robust)
+  # --- D. Run Hybrid Tuning ---
   tune_results <- tune_random_machines(
     data = df,
     time_col = "tempo", delta_col = "cens",

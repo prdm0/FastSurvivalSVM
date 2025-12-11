@@ -39,7 +39,7 @@ Uses cross-validation to evaluate the C-index."><meta property="og:image" conten
       <a href="../articles/random_machines.html">Advanced Guide: Custom Kernels and Random Machines</a>
     </li>
     <li>
-      <a href="../articles/tune_and_random.html">Complete Workflow: From Tuning to Random Machines (Fast Example)</a>
+      <a href="../articles/tune_and_random.html">End-to-End Workflow: Tuning and Training Random Machines</a>
     </li>
   </ul></li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
@@ -154,13 +154,14 @@ Example: <code>list(alpha = c(0.1, 1), rank_ratio = c(0, 1))</code>.</p></dd>
 <span class="r-in"><span>  <span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="data_generation.html">data_generation</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">200</span>, prop_cen <span class="op">=</span> <span class="fl">0.3</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
-<span class="r-in"><span>  <span class="co"># CASE 1: Standard Kernel (RBF) - Uses Python Parallelism</span></span></span>
+<span class="r-in"><span>  <span class="co"># EXAMPLE 1: Standard Kernel (RBF) - Regression Mode (rank_ratio=0)</span></span></span>
 <span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
-<span class="r-in"><span>  <span class="co"># We want to tune 'alpha' and the RBF 'gamma' parameter.</span></span></span>
+<span class="r-in"><span>  <span class="co"># We optimize 'alpha' and 'gamma' using a grid of 3 values each.</span></span></span>
 <span class="r-in"><span>  </span></span>
 <span class="r-in"><span>  <span class="va">grid_rbf</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
 <span class="r-in"><span>    kernel <span class="op">=</span> <span class="st">"rbf"</span>,</span></span>
-<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">1</span>, <span class="fl">10</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    rank_ratio <span class="op">=</span> <span class="fl">0</span>, <span class="co"># Regression on time</span></span></span>
+<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>    gamma  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.001</span>, <span class="fl">0.01</span>, <span class="fl">0.1</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
@@ -175,7 +176,7 @@ Example: <code>list(alpha = c(0.1, 1), rank_ratio = c(0, 1))</code>.</p></dd>
 <span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">res_rbf</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
-<span class="r-in"><span>  <span class="co"># CASE 2: Custom Kernel in R - Uses mirai Parallelism</span></span></span>
+<span class="r-in"><span>  <span class="co"># EXAMPLE 2: Custom Kernel in R - Regression Mode</span></span></span>
 <span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
 <span class="r-in"><span>  </span></span>
 <span class="r-in"><span>  <span class="co"># 1. Define a Kernel Factory (e.g., simple Sum-Product kernel)</span></span></span>
@@ -186,14 +187,14 @@ Example: <code>list(alpha = c(0.1, 1), rank_ratio = c(0, 1))</code>.</p></dd>
 <span class="r-in"><span>    <span class="op">}</span></span></span>
 <span class="r-in"><span>  <span class="op">}</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 2. Create variants to tune the 'bias' parameter</span></span></span>
-<span class="r-in"><span>  <span class="co">#    This creates a list of functions with metadata</span></span></span>
+<span class="r-in"><span>  <span class="co"># 2. Create variants to tune the 'bias' parameter (3 values)</span></span></span>
 <span class="r-in"><span>  <span class="va">k_variants</span> <span class="op">&lt;-</span> <span class="fu"><a href="create_kernel_variants.html">create_kernel_variants</a></span><span class="op">(</span><span class="va">make_sumprod</span>, bias <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">1</span>, <span class="fl">5</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 3. Define grid</span></span></span>
+<span class="r-in"><span>  <span class="co"># 3. Define grid (Tune kernel variant and regularization)</span></span></span>
 <span class="r-in"><span>  <span class="va">grid_custom</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>    kernel <span class="op">=</span> <span class="va">k_variants</span>,   <span class="co"># The kernel function itself is a parameter</span></span></span>
-<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span>     <span class="co"># Standard regularization</span></span></span>
+<span class="r-in"><span>    kernel <span class="op">=</span> <span class="va">k_variants</span>,   </span></span>
+<span class="r-in"><span>    rank_ratio <span class="op">=</span> <span class="fl">0</span>, <span class="co"># Regression on time</span></span></span>
+<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span>, <span class="fl">10</span><span class="op">)</span>     </span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
 <span class="r-in"><span>  <span class="co"># 4. Tune (Automatically detects custom kernel -&gt; switches to mirai)</span></span></span>
