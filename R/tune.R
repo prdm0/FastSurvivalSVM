@@ -70,6 +70,9 @@ create_kernel_variants <- function(kernel_factory, ...) {
 }
 
 #' Print method for custom kernels
+#' 
+#' @param x An object of class \code{"fastsvm_custom_kernel"}.
+#' @param ... Additional arguments passed to methods.
 #' @export
 print.fastsvm_custom_kernel <- function(x, ...) {
   if (requireNamespace("cli", quietly = TRUE)) {
@@ -184,65 +187,66 @@ print.fastsvm_custom_kernel <- function(x, ...) {
 #'
 #' @examples
 #' \dontrun{
-#' if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
+#' if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly = TRUE)) {
 #'   library(FastSurvivalSVM)
 #'   
+#'   # --- Data Generation ---
 #'   set.seed(42)
-#'   # Generate dummy data
-#'   df <- data.frame(
-#'     time = rexp(100),
-#'     event = rbinom(100, 1, 0.7),
-#'     x1 = rnorm(100), x2 = rnorm(100)
-#'   )
+#'   df <- data_generation(n = 200, prop_cen = 0.3)
 #'
-#'   # --- Example 1: Standard Kernel (RBF) ---
-#'   # Uses Python parallelism (very fast)
+#'   # =========================================================================
+#'   # CASE 1: Standard Kernel (RBF) - Uses Python Parallelism
+#'   # =========================================================================
+#'   # We want to tune 'alpha' and the RBF 'gamma' parameter.
+#'   
 #'   grid_rbf <- list(
 #'     kernel = "rbf",
-#'     alpha  = c(0.1, 1),
-#'     gamma  = c(0.01, 0.1)
+#'     alpha  = c(0.01, 1, 10),
+#'     gamma  = c(0.001, 0.01, 0.1)
 #'   )
 #'   
 #'   res_rbf <- tune_fastsvm(
 #'     data = df, 
-#'     time_col = "time", delta_col = "event",
+#'     time_col = "tempo", delta_col = "cens",
 #'     param_grid = grid_rbf,
 #'     cv = 3, 
-#'     cores = parallel::detectCores(), # Use all cores
+#'     cores = 2, # Passed to Python's joblib
 #'     verbose = 1
 #'   )
 #'   print(res_rbf)
 #'
-#'   # --- Example 2: Custom Kernel (Wavelet) ---
-#'   # Uses R parallelism (mirai) automatically
+#'   # =========================================================================
+#'   # CASE 2: Custom Kernel in R - Uses mirai Parallelism
+#'   # =========================================================================
 #'   
-#'   # 1. Define Factory
-#'   make_wav <- function(a=1) { 
-#'     force(a)
-#'     function(x,z) {
-#'       u<-(as.numeric(x)-as.numeric(z))/a
-#'       prod(cos(1.75*u)*exp(-0.5*u^2))
+#'   # 1. Define a Kernel Factory (e.g., simple Sum-Product kernel)
+#'   make_sumprod <- function(bias = 0) { 
+#'     force(bias)
+#'     function(x, z) {
+#'       prod(as.numeric(x) * as.numeric(z)) + bias
 #'     }
 #'   }
 #'   
-#'   # 2. Create Variants
-#'   wav_vars <- create_kernel_variants(make_wav, a = c(0.5, 2.0))
+#'   # 2. Create variants to tune the 'bias' parameter
+#'   #    This creates a list of functions with metadata
+#'   k_variants <- create_kernel_variants(make_sumprod, bias = c(0, 1, 5))
 #'   
-#'   grid_wav <- list(
-#'     kernel = wav_vars,
-#'     alpha  = c(0.1, 1)
+#'   # 3. Define grid
+#'   grid_custom <- list(
+#'     kernel = k_variants,   # The kernel function itself is a parameter
+#'     alpha  = c(0.1, 1)     # Standard regularization
 #'   )
 #'   
-#'   # 3. Tune (cores > 1 activates mirai backend)
-#'   res_wav <- tune_fastsvm(
+#'   # 4. Tune (Automatically detects custom kernel -> switches to mirai)
+#'   res_custom <- tune_fastsvm(
 #'     data = df, 
-#'     time_col = "time", delta_col = "event",
-#'     param_grid = grid_wav,
+#'     time_col = "tempo", delta_col = "cens",
+#'     param_grid = grid_custom,
 #'     cv = 3, 
-#'     cores = parallel::detectCores(), # Use all cores
+#'     cores = 2, # Starts 2 background R daemons
 #'     verbose = 1
 #'   )
-#'   print(res_wav)
+#'   print(res_custom)
 #' }
 #' }
 #'
@@ -272,8 +276,6 @@ tune_fastsvm <- function(
   sklearn_sel <- reticulate::import("sklearn.model_selection", delay_load = TRUE)
   sksvm_mod   <- reticulate::import("sksurv.svm", delay_load = TRUE)
   sksurv_util <- reticulate::import("sksurv.util", delay_load = TRUE)
-  
-  # Suppress Python warnings (ConvergenceWarning, etc.) in main process
   try(reticulate::py_run_string("import warnings; warnings.simplefilter('ignore')"), silent = TRUE)
   
   # --- Data Prep ---
@@ -318,8 +320,10 @@ tune_fastsvm <- function(
     
     # Worker Function
     run_candidate <- function(params, X, time, event, cv, fixed_args) {
-      library(reticulate)
-      try(library(FastSurvivalSVM), silent = TRUE)
+      if (!requireNamespace("reticulate", quietly = TRUE)) return(-Inf)
+      
+      # Attempt to load package, otherwise safe imports
+      try(requireNamespace("FastSurvivalSVM", quietly = TRUE), silent = TRUE)
       
       # Python Setup inside worker
       if (!reticulate::py_available(initialize = TRUE)) reticulate::py_config()
@@ -521,6 +525,8 @@ tune_fastsvm <- function(
 #' Multi-Kernel Tuning for Random Machines
 #'
 #' Orchestrates hyperparameter tuning for multiple kernels simultaneously.
+#' This function allows mixing **native scikit-learn kernels** (string based)
+#' and **custom R kernels** (function based) in a single tuning session.
 #' 
 #' @section Parallelization Details:
 #' The \code{cores} parameter is passed down to the individual tuning function.
@@ -543,87 +549,85 @@ tune_fastsvm <- function(
 #'
 #' @examples
 #' \dontrun{
-#' if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
+#' if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly=TRUE)) {
 #'   library(FastSurvivalSVM)
 #'   
-#'   # 1. Generate data
-#'   set.seed(123)
-#'   df <- data_generation(n = 200, prop_cen = 0.3)
-#'   
-#'   # =========================================================================
-#'   # Example 1: Standard Kernels (Pure Python Parallelism)
-#'   # =========================================================================
-#'   # We define 3 standard kernels: Linear, RBF, and Polynomial.
-#'   # These use Python's joblib for very efficient multi-threading.
-#'   
-#'   kmix_std <- list(
-#'     linear = list(kernel = "linear"),
-#'     rbf    = list(kernel = "rbf"),
-#'     poly   = list(kernel = "poly", degree = 2) # Base degree 2
-#'   )
-#'   
-#'   grids_std <- list(
-#'     linear = list(alpha = c(0.1, 1, 10)),
-#'     rbf    = list(alpha = c(0.1, 1), gamma = c(0.01, 0.1)),
-#'     poly   = list(alpha = c(0.1, 1), coef0 = c(0, 1))
-#'   )
-#'   
-#'   # Run tuning using all available cores
-#'   res_std <- tune_random_machines(
-#'     data = df, time_col = "tempo", delta_col = "cens",
-#'     kernel_mix = kmix_std,
-#'     param_grids = grids_std,
-#'     cv = 5,
-#'     cores = parallel::detectCores(),
-#'     verbose = 1
-#'   )
-#'   print(res_std)
+#'   set.seed(99)
+#'   df <- data_generation(n = 200, prop_cen = 0.25)
 #'
 #'   # =========================================================================
-#'   # Example 2: Mixed Kernels (Native + Custom R Function)
+#'   # Setup: Hybrid Tuning (Native + Custom Kernels)
 #'   # =========================================================================
-#'   # Here we mix standard kernels with a custom Wavelet kernel defined in R.
-#'   # The function detects the custom kernel and switches to 'mirai' parallelism.
 #'   
-#'   # A. Define Custom Wavelet Factory
-#'   make_wav <- function(a=1) { 
-#'     force(a)
-#'     function(x,z) {
-#'       u<-(as.numeric(x)-as.numeric(z))/a
-#'       prod(cos(1.75*u)*exp(-0.5*u^2))
+#'   # 1. Prepare Custom Kernel Variants (e.g. Wavelet)
+#'   make_wavelet <- function(A = 1) {
+#'     force(A)
+#'     function(x, z) {
+#'       u <- (as.numeric(x) - as.numeric(z)) / A
+#'       prod(cos(1.75 * u) * exp(-0.5 * u^2))
 #'     }
 #'   }
-#'   
-#'   # B. Define Kernel Mix
-#'   kmix_custom <- list(
-#'     linear  = list(kernel = "linear"),
-#'     rbf     = list(kernel = "rbf"),
-#'     wavelet = list(kernel = make_wav(a=1)) # R function
+#'   wav_variants <- create_kernel_variants(make_wavelet, A = c(0.5, 2.0))
+#'
+#'   # 2. Define Base Configurations (The "Mix")
+#'   #    Notice we can mix "rbf" (string) and custom functions.
+#'   mix <- list(
+#'     # A. Native Scikit-learn Kernel
+#'     my_rbf = list(
+#'       kernel = "rbf",
+#'       rank_ratio = 0.5  # Fixed param for this kernel
+#'     ),
+#'     
+#'     # B. Native Linear Kernel
+#'     my_linear = list(
+#'       kernel = "linear",
+#'       rank_ratio = 0.0
+#'     ),
+#'     
+#'     # C. Custom R Kernel
+#'     my_wavelet = list(
+#'       # We don't set 'kernel' here because we will tune it in the grid
+#'       rank_ratio = 1.0
+#'     )
 #'   )
-#'   
-#'   # C. Define Grids (Wavelet varies 'a' using helper)
-#'   wav_vars <- create_kernel_variants(make_wav, a = c(0.5, 2.0))
-#'   
-#'   grids_custom <- list(
-#'     linear  = list(alpha = c(0.1, 1)),
-#'     rbf     = list(alpha = c(0.1, 1)),
-#'     wavelet = list(alpha = c(0.1, 1), kernel = wav_vars)
+#'
+#'   # 3. Define Grids for each member of the Mix
+#'   #    The names must match the 'mix' list.
+#'   grids <- list(
+#'     # Tune alpha and gamma for RBF
+#'     my_rbf = list(
+#'       alpha = c(0.1, 10),
+#'       gamma = c(0.01, 0.1)
+#'     ),
+#'     
+#'     # Tune only alpha for Linear
+#'     my_linear = list(
+#'       alpha = c(0.01, 1)
+#'     ),
+#'     
+#'     # Tune the kernel function itself (A=0.5 vs A=2.0) and alpha
+#'     my_wavelet = list(
+#'       kernel = wav_variants,
+#'       alpha  = c(0.1, 1)
+#'     )
 #'   )
-#'   
-#'   # D. Run Tuning
-#'   # 'cores' > 1 will activate mirai for the custom kernel part.
-#'   res_custom <- tune_random_machines(
-#'     data = df, time_col = "tempo", delta_col = "cens",
-#'     kernel_mix = kmix_custom,
-#'     param_grids = grids_custom,
-#'     cv = 5,
-#'     cores = parallel::detectCores(),
+#'
+#'   # 4. Run Hybrid Tuning
+#'   #    - 'my_rbf' and 'my_linear' will use Python parallelism (fast)
+#'   #    - 'my_wavelet' will use mirai parallelism (robust)
+#'   tune_results <- tune_random_machines(
+#'     data = df,
+#'     time_col = "tempo", delta_col = "cens",
+#'     kernel_mix = mix,
+#'     param_grids = grids,
+#'     cv = 3,
+#'     cores = 2,
 #'     verbose = 1
 #'   )
-#'   print(res_custom)
+#'   
+#'   print(tune_results)
 #' }
 #' }
-#' 
 #' @export
 tune_random_machines <- function(
   data,
@@ -692,6 +696,10 @@ tune_random_machines <- function(
 # -------------------------------------------------------------------
 
 #' Print method for Random Machines tuning results
+#' 
+#' @param x An object of class \code{"random_machines_tune"}.
+#' @param ... Additional arguments passed to methods.
+#' 
 #' @export
 print.random_machines_tune <- function(x, ...) {
   if (requireNamespace("cli", quietly = TRUE)) {
@@ -710,6 +718,10 @@ print.random_machines_tune <- function(x, ...) {
 }
 
 #' Print method for single tuning result
+#' 
+#' @param x An object of class \code{"fastsvm_grid"}.
+#' @param ... Additional arguments passed to methods.
+#' 
 #' @export
 print.fastsvm_grid <- function(x, ...) {
   if (requireNamespace("cli", quietly = TRUE)) {

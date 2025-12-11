@@ -6,6 +6,11 @@
 \usage{
 \method{print}{fastsvm_grid}(x, ...)
 }
+\arguments{
+\item{x}{An object of class \code{"fastsvm_grid"}.}
+
+\item{...}{Additional arguments passed to methods.}
+}
 \description{
 Print method for single tuning result
 }

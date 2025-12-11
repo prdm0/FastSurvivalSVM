@@ -6,6 +6,11 @@
 \usage{
 \method{print}{random_machines_tune}(x, ...)
 }
+\arguments{
+\item{x}{An object of class \code{"random_machines_tune"}.}
+
+\item{...}{Additional arguments passed to methods.}
+}
 \description{
 Print method for Random Machines tuning results
 }

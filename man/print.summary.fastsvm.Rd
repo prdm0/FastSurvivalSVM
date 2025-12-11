@@ -9,7 +9,7 @@
 \arguments{
 \item{x}{An object of class \code{"summary.fastsvm"}.}
 
-\item{...}{Not used.}
+\item{...}{Additional arguments passed to methods.}
 }
 \description{
 Print method for summary.fastsvm objects

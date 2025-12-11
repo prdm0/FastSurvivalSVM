@@ -9,7 +9,7 @@
 \arguments{
 \item{object}{An object of class \code{"fastsvm"}.}
 
-\item{...}{Not used.}
+\item{...}{Additional arguments passed to methods.}
 }
 \value{
 An object of class \code{"summary.fastsvm"}.

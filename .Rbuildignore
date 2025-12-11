@@ -1,1 +1,11 @@
+^.*\.Rproj$
+^\.Rproj\.user$
 ^LICENSE\.md$
+^README\.md$
+^logo\.png$
+^docs$
+^pkgdown$
+^.*_backup\.R$
+^workspace\.code-workspace$
+^teste_com_kernel_wavelet\.R$
+^img$

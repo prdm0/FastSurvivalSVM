@@ -67,65 +67,66 @@ The \code{cores} argument controls how computation is distributed:
 
 \examples{
 \dontrun{
-if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
+if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly = TRUE)) {
   library(FastSurvivalSVM)
   
+  # --- Data Generation ---
   set.seed(42)
-  # Generate dummy data
-  df <- data.frame(
-    time = rexp(100),
-    event = rbinom(100, 1, 0.7),
-    x1 = rnorm(100), x2 = rnorm(100)
-  )
+  df <- data_generation(n = 200, prop_cen = 0.3)
 
-  # --- Example 1: Standard Kernel (RBF) ---
-  # Uses Python parallelism (very fast)
+  # =========================================================================
+  # CASE 1: Standard Kernel (RBF) - Uses Python Parallelism
+  # =========================================================================
+  # We want to tune 'alpha' and the RBF 'gamma' parameter.
+  
   grid_rbf <- list(
     kernel = "rbf",
-    alpha  = c(0.1, 1),
-    gamma  = c(0.01, 0.1)
+    alpha  = c(0.01, 1, 10),
+    gamma  = c(0.001, 0.01, 0.1)
   )
   
   res_rbf <- tune_fastsvm(
     data = df, 
-    time_col = "time", delta_col = "event",
+    time_col = "tempo", delta_col = "cens",
     param_grid = grid_rbf,
     cv = 3, 
-    cores = parallel::detectCores(), # Use all cores
+    cores = 2, # Passed to Python's joblib
     verbose = 1
   )
   print(res_rbf)
 
-  # --- Example 2: Custom Kernel (Wavelet) ---
-  # Uses R parallelism (mirai) automatically
+  # =========================================================================
+  # CASE 2: Custom Kernel in R - Uses mirai Parallelism
+  # =========================================================================
   
-  # 1. Define Factory
-  make_wav <- function(a=1) { 
-    force(a)
-    function(x,z) {
-      u<-(as.numeric(x)-as.numeric(z))/a
-      prod(cos(1.75*u)*exp(-0.5*u^2))
+  # 1. Define a Kernel Factory (e.g., simple Sum-Product kernel)
+  make_sumprod <- function(bias = 0) { 
+    force(bias)
+    function(x, z) {
+      prod(as.numeric(x) * as.numeric(z)) + bias
     }
   }
   
-  # 2. Create Variants
-  wav_vars <- create_kernel_variants(make_wav, a = c(0.5, 2.0))
+  # 2. Create variants to tune the 'bias' parameter
+  #    This creates a list of functions with metadata
+  k_variants <- create_kernel_variants(make_sumprod, bias = c(0, 1, 5))
   
-  grid_wav <- list(
-    kernel = wav_vars,
-    alpha  = c(0.1, 1)
+  # 3. Define grid
+  grid_custom <- list(
+    kernel = k_variants,   # The kernel function itself is a parameter
+    alpha  = c(0.1, 1)     # Standard regularization
   )
   
-  # 3. Tune (cores > 1 activates mirai backend)
-  res_wav <- tune_fastsvm(
+  # 4. Tune (Automatically detects custom kernel -> switches to mirai)
+  res_custom <- tune_fastsvm(
     data = df, 
-    time_col = "time", delta_col = "event",
-    param_grid = grid_wav,
+    time_col = "tempo", delta_col = "cens",
+    param_grid = grid_custom,
     cv = 3, 
-    cores = parallel::detectCores(), # Use all cores
+    cores = 2, # Starts 2 background R daemons
     verbose = 1
   )
-  print(res_wav)
+  print(res_custom)
 }
 }
 

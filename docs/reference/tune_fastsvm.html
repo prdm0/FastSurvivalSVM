@@ -143,65 +143,66 @@ Example: <code>list(alpha = c(0.1, 1), rank_ratio = c(0, 1))</code>.</p></dd>
     <div id="ref-examples">
     <h2>Examples</h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
-<span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu">reticulate</span><span class="fu">::</span><span class="fu"><a href="https://rstudio.github.io/reticulate/reference/py_module_available.html" class="external-link">py_module_available</a></span><span class="op">(</span><span class="st">"sksurv"</span><span class="op">)</span> <span class="op">&amp;&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"mirai"</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
+<span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu">reticulate</span><span class="fu">::</span><span class="fu"><a href="https://rstudio.github.io/reticulate/reference/py_module_available.html" class="external-link">py_module_available</a></span><span class="op">(</span><span class="st">"sksurv"</span><span class="op">)</span> <span class="op">&amp;&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"mirai"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span>  <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/prdm0/FastSurvivalSVM" class="external-link">FastSurvivalSVM</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
+<span class="r-in"><span>  <span class="co"># --- Data Generation ---</span></span></span>
 <span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">42</span><span class="op">)</span></span></span>
-<span class="r-in"><span>  <span class="co"># Generate dummy data</span></span></span>
-<span class="r-in"><span>  <span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>    time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Exponential.html" class="external-link">rexp</a></span><span class="op">(</span><span class="fl">100</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>    event <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html" class="external-link">rbinom</a></span><span class="op">(</span><span class="fl">100</span>, <span class="fl">1</span>, <span class="fl">0.7</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>    x1 <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">100</span><span class="op">)</span>, x2 <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">100</span><span class="op">)</span></span></span>
-<span class="r-in"><span>  <span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="data_generation.html">data_generation</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">200</span>, prop_cen <span class="op">=</span> <span class="fl">0.3</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span>  <span class="co"># --- Example 1: Standard Kernel (RBF) ---</span></span></span>
-<span class="r-in"><span>  <span class="co"># Uses Python parallelism (very fast)</span></span></span>
+<span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
+<span class="r-in"><span>  <span class="co"># CASE 1: Standard Kernel (RBF) - Uses Python Parallelism</span></span></span>
+<span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
+<span class="r-in"><span>  <span class="co"># We want to tune 'alpha' and the RBF 'gamma' parameter.</span></span></span>
+<span class="r-in"><span>  </span></span>
 <span class="r-in"><span>  <span class="va">grid_rbf</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
 <span class="r-in"><span>    kernel <span class="op">=</span> <span class="st">"rbf"</span>,</span></span>
-<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>    gamma  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">1</span>, <span class="fl">10</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    gamma  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.001</span>, <span class="fl">0.01</span>, <span class="fl">0.1</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
 <span class="r-in"><span>  <span class="va">res_rbf</span> <span class="op">&lt;-</span> <span class="fu">tune_fastsvm</span><span class="op">(</span></span></span>
 <span class="r-in"><span>    data <span class="op">=</span> <span class="va">df</span>, </span></span>
-<span class="r-in"><span>    time_col <span class="op">=</span> <span class="st">"time"</span>, delta_col <span class="op">=</span> <span class="st">"event"</span>,</span></span>
+<span class="r-in"><span>    time_col <span class="op">=</span> <span class="st">"tempo"</span>, delta_col <span class="op">=</span> <span class="st">"cens"</span>,</span></span>
 <span class="r-in"><span>    param_grid <span class="op">=</span> <span class="va">grid_rbf</span>,</span></span>
 <span class="r-in"><span>    cv <span class="op">=</span> <span class="fl">3</span>, </span></span>
-<span class="r-in"><span>    cores <span class="op">=</span> <span class="fu">parallel</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/parallel/detectCores.html" class="external-link">detectCores</a></span><span class="op">(</span><span class="op">)</span>, <span class="co"># Use all cores</span></span></span>
+<span class="r-in"><span>    cores <span class="op">=</span> <span class="fl">2</span>, <span class="co"># Passed to Python's joblib</span></span></span>
 <span class="r-in"><span>    verbose <span class="op">=</span> <span class="fl">1</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">res_rbf</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span>  <span class="co"># --- Example 2: Custom Kernel (Wavelet) ---</span></span></span>
-<span class="r-in"><span>  <span class="co"># Uses R parallelism (mirai) automatically</span></span></span>
+<span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
+<span class="r-in"><span>  <span class="co"># CASE 2: Custom Kernel in R - Uses mirai Parallelism</span></span></span>
+<span class="r-in"><span>  <span class="co"># =========================================================================</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 1. Define Factory</span></span></span>
-<span class="r-in"><span>  <span class="va">make_wav</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">a</span><span class="op">=</span><span class="fl">1</span><span class="op">)</span> <span class="op">{</span> </span></span>
-<span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">a</span><span class="op">)</span></span></span>
-<span class="r-in"><span>    <span class="kw">function</span><span class="op">(</span><span class="va">x</span>,<span class="va">z</span><span class="op">)</span> <span class="op">{</span></span></span>
-<span class="r-in"><span>      <span class="va">u</span><span class="op">&lt;-</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span><span class="op">-</span><span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span><span class="op">)</span><span class="op">/</span><span class="va">a</span></span></span>
-<span class="r-in"><span>      <span class="fu"><a href="https://rdrr.io/r/base/prod.html" class="external-link">prod</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">cos</a></span><span class="op">(</span><span class="fl">1.75</span><span class="op">*</span><span class="va">u</span><span class="op">)</span><span class="op">*</span><span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.5</span><span class="op">*</span><span class="va">u</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="co"># 1. Define a Kernel Factory (e.g., simple Sum-Product kernel)</span></span></span>
+<span class="r-in"><span>  <span class="va">make_sumprod</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">bias</span> <span class="op">=</span> <span class="fl">0</span><span class="op">)</span> <span class="op">{</span> </span></span>
+<span class="r-in"><span>    <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">bias</span><span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="op">{</span></span></span>
+<span class="r-in"><span>      <span class="fu"><a href="https://rdrr.io/r/base/prod.html" class="external-link">prod</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span> <span class="va">bias</span></span></span>
 <span class="r-in"><span>    <span class="op">}</span></span></span>
 <span class="r-in"><span>  <span class="op">}</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 2. Create Variants</span></span></span>
-<span class="r-in"><span>  <span class="va">wav_vars</span> <span class="op">&lt;-</span> <span class="fu"><a href="create_kernel_variants.html">create_kernel_variants</a></span><span class="op">(</span><span class="va">make_wav</span>, a <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.5</span>, <span class="fl">2.0</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="co"># 2. Create variants to tune the 'bias' parameter</span></span></span>
+<span class="r-in"><span>  <span class="co">#    This creates a list of functions with metadata</span></span></span>
+<span class="r-in"><span>  <span class="va">k_variants</span> <span class="op">&lt;-</span> <span class="fu"><a href="create_kernel_variants.html">create_kernel_variants</a></span><span class="op">(</span><span class="va">make_sumprod</span>, bias <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">1</span>, <span class="fl">5</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="va">grid_wav</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>    kernel <span class="op">=</span> <span class="va">wav_vars</span>,</span></span>
-<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="co"># 3. Define grid</span></span></span>
+<span class="r-in"><span>  <span class="va">grid_custom</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
+<span class="r-in"><span>    kernel <span class="op">=</span> <span class="va">k_variants</span>,   <span class="co"># The kernel function itself is a parameter</span></span></span>
+<span class="r-in"><span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span>     <span class="co"># Standard regularization</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span>  </span></span>
-<span class="r-in"><span>  <span class="co"># 3. Tune (cores &gt; 1 activates mirai backend)</span></span></span>
-<span class="r-in"><span>  <span class="va">res_wav</span> <span class="op">&lt;-</span> <span class="fu">tune_fastsvm</span><span class="op">(</span></span></span>
+<span class="r-in"><span>  <span class="co"># 4. Tune (Automatically detects custom kernel -&gt; switches to mirai)</span></span></span>
+<span class="r-in"><span>  <span class="va">res_custom</span> <span class="op">&lt;-</span> <span class="fu">tune_fastsvm</span><span class="op">(</span></span></span>
 <span class="r-in"><span>    data <span class="op">=</span> <span class="va">df</span>, </span></span>
-<span class="r-in"><span>    time_col <span class="op">=</span> <span class="st">"time"</span>, delta_col <span class="op">=</span> <span class="st">"event"</span>,</span></span>
-<span class="r-in"><span>    param_grid <span class="op">=</span> <span class="va">grid_wav</span>,</span></span>
+<span class="r-in"><span>    time_col <span class="op">=</span> <span class="st">"tempo"</span>, delta_col <span class="op">=</span> <span class="st">"cens"</span>,</span></span>
+<span class="r-in"><span>    param_grid <span class="op">=</span> <span class="va">grid_custom</span>,</span></span>
 <span class="r-in"><span>    cv <span class="op">=</span> <span class="fl">3</span>, </span></span>
-<span class="r-in"><span>    cores <span class="op">=</span> <span class="fu">parallel</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/parallel/detectCores.html" class="external-link">detectCores</a></span><span class="op">(</span><span class="op">)</span>, <span class="co"># Use all cores</span></span></span>
+<span class="r-in"><span>    cores <span class="op">=</span> <span class="fl">2</span>, <span class="co"># Starts 2 background R daemons</span></span></span>
 <span class="r-in"><span>    verbose <span class="op">=</span> <span class="fl">1</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
-<span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">res_wav</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">res_custom</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span></span></span>
 <span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
 <span class="r-in"><span></span></span>

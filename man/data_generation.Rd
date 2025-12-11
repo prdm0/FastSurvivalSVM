@@ -62,7 +62,7 @@ head(df)
 
 if (reticulate::py_module_available("sksurv")) {
   # Example: using this toy dataset with FastKernelSurvivalSVM
-  fit <- fast_kernel_surv_svm_fit(
+  fit <- fastsvm(
     data      = df,
     time_col  = "tempo",
     delta_col = "cens",
@@ -71,7 +71,7 @@ if (reticulate::py_module_available("sksurv")) {
     rank_ratio = 0
   )
 
-  score_fastsvm(fit, df)
+  score(fit, df)
 }
 
 }

@@ -16,3 +16,20 @@ np     <- NULL
   sksurv <<- reticulate::import("sksurv",      delay_load = TRUE)
   sksvm  <<- reticulate::import("sksurv.svm",  delay_load = TRUE)
 }
+
+#' @importFrom utils globalVariables
+# Silence R CMD check notes regarding variables in mirai/purrr context
+if (getRversion() >= "2.15.1") {
+  utils::globalVariables(c(
+    "python_path_ref",
+    "kernel_names_ref",
+    "kernel_lambdas_ref",
+    "kernels_ref",
+    "n_ref",
+    "data_ref",
+    "time_col_ref",
+    "newdata_ref",
+    "delta_col_ref",
+    "mtry_ref"
+  ))
+}

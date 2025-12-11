@@ -13,7 +13,7 @@
 \item{newdata}{A \code{data.frame} containing the covariate columns used
 in the original fit (same names as in \code{object$x_cols}).}
 
-\item{...}{Not used (for S3 compatibility).}
+\item{...}{Additional arguments passed to methods.}
 }
 \value{
 A numeric vector of predictions:

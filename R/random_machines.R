@@ -1,5 +1,12 @@
 # R/random_machines.R
 
+# Declare global variables to avoid R CMD check notes
+utils::globalVariables(c(
+  "kernel_names_ref", "kernels_ref", "kernel_lambdas_ref", 
+  "n_ref", "data_ref", "time_col_ref", "newdata_ref", "delta_col_ref", 
+  "mtry_ref", "python_path_ref"
+))
+
 #' Generic function for computing concordance index (score)
 #'
 #' @param object A fitted model object.
@@ -252,7 +259,7 @@ random_machines <- function(
   if (!requireNamespace("cli", quietly = TRUE))
     stop("Package 'cli' required.")
   
-  # Verificação opcional do pacote emo
+  # Optional emo package check
   has_emo <- requireNamespace("emo", quietly = TRUE)
   ji <- function(x, fallback = "") if (has_emo) emo::ji(x) else fallback
   
@@ -265,7 +272,6 @@ random_machines <- function(
   # 1. Internal Holdout for Kernel Weights
   # ------------------------------------------------------------------
   
-  # Cabeçalho estilizado
   cli::cli_h1(paste(ji("rocket", ">>"), "Random Machines (Kernel Survival SVM)"))
   cli::cli_alert_info("Starting Random Machines (B={B}, mtry={if (is.null(mtry)) 'All' else mtry}) on {cores} cores.")
   
@@ -338,13 +344,11 @@ random_machines <- function(
   # 1.b Apply CROP logic
   # ------------------------------------------------------------------
   if (!is.null(crop)) {
-    # Máscara de quem sobrevive
     keep_mask <- kernel_lambdas > crop
     n_kept    <- sum(keep_mask)
     n_total   <- length(kernel_lambdas)
     
     if (n_kept == 0) {
-      # Fallback de segurança: se todos forem eliminados, mantém o melhor
       best_idx <- which.max(kernel_lambdas)
       keep_mask[best_idx] <- TRUE
       cli::cli_alert_warning(
@@ -356,16 +360,14 @@ random_machines <- function(
       )
     }
     
-    # Zerar os eliminados
     kernel_lambdas[!keep_mask] <- 0
     
-    # Re-normalizar os sobreviventes para somar 1
     if (sum(kernel_lambdas) > 0) {
       kernel_lambdas <- kernel_lambdas / sum(kernel_lambdas)
     }
   }
   
-  # Capture Python path from main session
+  # Capture Python path
   py_path_main <- tryCatch(reticulate::py_config()$python, error = function(e) NULL)
   
   # ------------------------------------------------------------------
@@ -379,7 +381,7 @@ random_machines <- function(
   }
   
   # ------------------------------------------------------------------
-  # 3. Parallel Bootstrap (Train & Predict in workers)
+  # 3. Parallel Bootstrap
   # ------------------------------------------------------------------
   cli::cli_alert_info("Executing parallel bootstrap...")
   
@@ -388,9 +390,9 @@ random_machines <- function(
     .f = purrr::in_parallel(
       function(b) {
         # --- A. Worker setup ---
-        library(reticulate)
+        if (!requireNamespace("reticulate", quietly = TRUE)) return(NULL)
         
-        # Ensure correct Python and silence warnings
+        # Ensure correct Python
         if (!is.null(python_path_ref)) {
           Sys.setenv(RETICULATE_PYTHON = python_path_ref)
         }
@@ -404,7 +406,6 @@ random_machines <- function(
           silent = TRUE
         )
         
-        # Local imports
         sksvm_loc  <- reticulate::import("sksurv.svm")
         sksurv_loc <- reticulate::import("sksurv")
         pickle_loc <- reticulate::import("pickle")
@@ -417,12 +418,9 @@ random_machines <- function(
         }
         
         # --- B. Bagging logic ---
-        # A função sample lida automaticamente com prob=0 (nunca sorteia)
-        # desde que a soma das probs seja > 0 (garantido pelo re-scaling)
         kname <- sample(kernel_names_ref, size = 1, prob = kernel_lambdas_ref)
         spec  <- kernels_ref[[kname]]
         
-        # Row bootstrap
         boo_index <- sample.int(n_ref, n_ref, replace = TRUE)
         oob_index <- setdiff(seq_len(n_ref), unique(boo_index))
         
@@ -437,7 +435,6 @@ random_machines <- function(
           return(NULL)
         }
         
-        # Feature selection (mtry)
         all_features <- setdiff(names(df_boot), c(time_col_ref, delta_col_ref))
         
         if (!is.null(mtry_ref)) {
@@ -456,13 +453,11 @@ random_machines <- function(
         X_mat  <- as.matrix(df_boot[, x_cols, drop = FALSE])
         y_surv <- local_mk_surv(df_boot[[time_col_ref]], df_boot[[delta_col_ref]] == 1)
         
-        # Newdata matrix
         if (!all(x_cols %in% names(newdata_ref))) {
           return(NULL)
         }
         X_test <- as.matrix(newdata_ref[, x_cols, drop = FALSE])
         
-        # Configure params
         params <- spec
         k_arg  <- params$kernel
         params$kernel <- NULL
@@ -479,7 +474,6 @@ random_machines <- function(
         
         final_args <- c(list(kernel = k_py), params)
         
-        # Fit model
         model <- tryCatch({
           mod <- do.call(sksvm_loc$FastKernelSurvivalSVM, final_args)
           mod$fit(X_mat, y_surv)
@@ -490,7 +484,6 @@ random_machines <- function(
           return(NULL)
         }
         
-        # OOB C-index
         c_index_b <- 0.5
         if (length(oob_index) > 0L) {
           dados_oob <- data_ref[oob_index, , drop = FALSE]
@@ -508,13 +501,11 @@ random_machines <- function(
           }
         }
         
-        # Predictions on newdata
         pred_vec <- tryCatch(
           as.numeric(model$predict(X_test)),
           error = function(e) na_pred
         )
         
-        # Serialize (pickle) for future use
         model_bytes <- tryCatch({
           py_bytes <- reticulate::py_call(pickle_loc$dumps, model)
           as.raw(reticulate::py_to_r(py_bytes))
@@ -648,6 +639,9 @@ score.random_machines <- function(object, data, ...) {
 }
 
 #' Print method for random_machines
+#' 
+#' @param x An object of class \code{"random_machines"}.
+#' @param ... Not used.
 #' @export
 print.random_machines <- function(x, ...) {
   if (!requireNamespace("cli", quietly = TRUE)) {
@@ -658,7 +652,6 @@ print.random_machines <- function(x, ...) {
   has_emo <- requireNamespace("emo", quietly = TRUE)
   ji <- function(x, fallback = "") if (has_emo) emo::ji(x) else fallback
   
-  # Configurar Tema
   d <- cli::cli_div(theme = list(
     span.emph = list(color = "cyan"), 
     span.strong = list(color = "blue", font_weight = "bold"),
@@ -680,7 +673,7 @@ print.random_machines <- function(x, ...) {
   
   cat("\n")
   
-  # --- Tabela 1: Kernel Usage (Bootstrap Selection) ---
+  # Table 1
   cli::cli_h2(paste(ji("bar_chart", "||"), "Kernel Usage (Bootstrap Selection)"))
   
   tbl   <- table(x$chosen_kernels)
@@ -694,11 +687,9 @@ print.random_machines <- function(x, ...) {
   )
   df_usage <- df_usage[order(-df_usage$Count), ]
   
-  # ALINHAMENTO DINÂMICO
-  # Calcula a largura máxima de cada coluna considerando Cabeçalho e Dados
   w_kern_u  <- max(nchar(df_usage$Kernel), nchar("Kernel"))
   w_count_u <- max(nchar(as.character(df_usage$Count)), nchar("Count"))
-  w_prob_u  <- max(nchar("Probability"), nchar("0.0000")) # Min 11 para "Probability"
+  w_prob_u  <- max(nchar("Probability"), nchar("0.0000"))
   
   cli::cli_rule()
   cat(sprintf(
@@ -726,7 +717,7 @@ print.random_machines <- function(x, ...) {
   
   cat("\n")
   
-  # --- Tabela 2: Kernel Weights (Holdout Probabilities) ---
+  # Table 2
   cli::cli_h2(paste(ji("balance_scale", "||"), "Kernel Weights (Holdout Probabilities)"))
   
   df_w <- data.frame(
@@ -734,13 +725,10 @@ print.random_machines <- function(x, ...) {
     Prob   = as.numeric(x$kernel_lambdas),
     stringsAsFactors = FALSE
   )
-  # Ordenar: maiores probs primeiro
   df_w <- df_w[order(-df_w$Prob), ]
   
-  # Larguras dinâmicas para Tabela 2
   w_kern_w <- max(nchar(df_w$Kernel), nchar("Kernel"))
   w_prob_w <- max(nchar("Probability"), nchar("0.0000"))
-  # Status width não precisa de calculo rigido pois é a ultima coluna
   
   cli::cli_rule()
   cat(sprintf(
@@ -756,12 +744,10 @@ print.random_machines <- function(x, ...) {
     prob_fmt <- sprintf("%*.4f", w_prob_w, prob_val)
     
     if (prob_val > 0) {
-      # Texto "Selected" com check verde
       status_icon <- if(has_emo) ji("white_check_mark") else "OK"
       prob_fmt    <- cli::col_green(prob_fmt)
       status_full <- paste(status_icon, cli::style_bold(cli::col_green("Selected")))
     } else {
-      # Texto "Eliminated" com x vermelho
       status_icon <- if(has_emo) ji("x") else "X"
       prob_fmt    <- cli::col_red(prob_fmt)
       status_full <- paste(status_icon, cli::style_bold(cli::col_red("Eliminated")))

@@ -13,7 +13,7 @@
 model (must contain \code{object$time_col}, \code{object$delta_col}
 and all covariates in \code{object$x_cols}).}
 
-\item{...}{Not used (for S3 compatibility).}
+\item{...}{Additional arguments passed to methods.}
 }
 \value{
 A single numeric value with the estimated concordance index.

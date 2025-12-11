@@ -6,6 +6,11 @@
 \usage{
 \method{print}{random_machines}(x, ...)
 }
+\arguments{
+\item{x}{An object of class \code{"random_machines"}.}
+
+\item{...}{Not used.}
+}
 \description{
 Print method for random_machines
 }

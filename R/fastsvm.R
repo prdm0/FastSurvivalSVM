@@ -168,7 +168,7 @@ fastsvm <- function(
 #' number of covariates, kernel type, and key hyperparameters.
 #'
 #' @param x An object of class \code{"fastsvm"}.
-#' @param ... Not used.
+#' @param ... Additional arguments passed to methods.
 #'
 #' @export
 print.fastsvm <- function(x, ...) {
@@ -224,7 +224,7 @@ print.fastsvm <- function(x, ...) {
 #'   \code{fastsvm()}.
 #' @param newdata A \code{data.frame} containing the covariate columns used
 #'   in the original fit (same names as in \code{object$x_cols}).
-#' @param ... Not used (for S3 compatibility).
+#' @param ... Additional arguments passed to methods.
 #'
 #' @return A numeric vector of predictions:
 #'   \itemize{
@@ -271,7 +271,7 @@ predict.fastsvm <- function(object, newdata, ...) {
 #' @param data A \code{data.frame} in the same format used for fitting the
 #'   model (must contain \code{object$time_col}, \code{object$delta_col}
 #'   and all covariates in \code{object$x_cols}).
-#' @param ... Not used (for S3 compatibility).
+#' @param ... Additional arguments passed to methods.
 #'
 #' @return A single numeric value with the estimated concordance index.
 #'
@@ -314,7 +314,7 @@ score.fastsvm <- function(object, data, ...) {
 #' \code{coef_} returned by the Python model.
 #'
 #' @param object An object of class \code{"fastsvm"}.
-#' @param ... Not used.
+#' @param ... Additional arguments passed to methods.
 #'
 #' @return An object of class \code{"summary.fastsvm"}.
 #'
@@ -347,7 +347,7 @@ summary.fastsvm <- function(object, ...) {
 #' Print method for summary.fastsvm objects
 #'
 #' @param x An object of class \code{"summary.fastsvm"}.
-#' @param ... Not used.
+#' @param ... Additional arguments passed to methods.
 #'
 #' @export
 print.summary.fastsvm <- function(x, ...) {

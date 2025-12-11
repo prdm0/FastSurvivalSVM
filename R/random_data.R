@@ -51,7 +51,7 @@
 #'
 #' if (reticulate::py_module_available("sksurv")) {
 #'   # Example: using this toy dataset with FastKernelSurvivalSVM
-#'   fit <- fast_kernel_surv_svm_fit(
+#'   fit <- fastsvm(
 #'     data      = df,
 #'     time_col  = "tempo",
 #'     delta_col = "cens",
@@ -60,9 +60,10 @@
 #'     rank_ratio = 0
 #'   )
 #'
-#'   score_fastsvm(fit, df)
+#'   score(fit, df)
 #' }
 #'
+#' @importFrom stats rnorm rexp runif
 #' @export
 data_generation <- function(n, prop_cen) {
   if (length(n) != 1L || n <= 0L) {

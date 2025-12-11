@@ -39,6 +39,13 @@ Imports:
     stats,
     survival,
     utils
+Suggests:
+    carrier,
+    emo,
+    knitr,
+    rmarkdown,
+    testthat
+VignetteBuilder: knitr
 Encoding: UTF-8
 LazyData: true
 License: MIT + file LICENSE
