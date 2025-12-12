@@ -90,7 +90,7 @@ Wavelet Kernel</h1>
                         <h4 data-toc-skip class="author">Pedro Rafael
 Diniz Marinho</h4>
             
-            <h4 data-toc-skip class="date">2025-12-11</h4>
+            <h4 data-toc-skip class="date">2025-12-12</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/prdm0/FastSurvivalSVM/blob/HEAD/vignettes/FastSurvivalSVM-wavelet-kernel.Rmd" class="external-link"><code>vignettes/FastSurvivalSVM-wavelet-kernel.Rmd</code></a></small>
       <div class="hidden name"><code>FastSurvivalSVM-wavelet-kernel.Rmd</code></div>
@@ -102,49 +102,44 @@ Diniz Marinho</h4>
 <div class="section level2">
 <h2 id="introduction">Introduction<a class="anchor" aria-label="anchor" href="#introduction"></a>
 </h2>
-<p>The <strong>FastSurvivalSVM</strong> package provides an R interface
-to the Python class<br><a href="https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html" class="external-link"><code>FastKernelSurvivalSVM</code></a>,<br>
-implemented in the <em>scikit-survival</em> library.</p>
-<p>In addition to supporting built-in kernels such as
-<code>"rbf"</code>, <code>"poly"</code>, and
-<code>"sigmoid"</code>,<br>
-the package allows R users to define <strong>fully custom kernel
-functions</strong>.</p>
+<p>The FastSurvivalSVM package provides an efficient R interface to the
+Python class FastKernelSurvivalSVM from the scikit-survival library.</p>
+<p>A powerful feature of this package is the ability to define fully
+custom kernel functions in R. Previously, this required complex
+programming patterns (function factories and closures). Now, with the
+helper function <code><a href="../reference/grid_kernel.html">grid_kernel()</a></code>, defining and using a custom
+kernel is straightforward.</p>
 <p>This vignette demonstrates:</p>
 <ul>
-<li>How to construct custom kernels in R<br>
-</li>
-<li>How to use them within <code>fast_kernel_surv_svm_fit()</code><br>
-</li>
-<li>How to fit models using the <strong>wavelet kernel</strong> from the
-article <em>SVM Wavelet (Ará et al., 2016)</em><br>
-</li>
+<li>How to define a custom kernel using simple R syntax.</li>
+<li>How to instantiate a specific kernel version using
+<code><a href="../reference/grid_kernel.html">grid_kernel()</a></code>.</li>
+<li>How to fit a model using the wavelet kernel (Ará et al., 2016).</li>
 <li>How to extract predictions, C-index, coefficients, and
-hyperparameters</li>
+hyperparameters.</li>
 </ul>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="data-example">Data Example<a class="anchor" aria-label="anchor" href="#data-example"></a>
 </h2>
+<p>We begin by generating a synthetic survival dataset with nonlinear
+relationships to test the kernel’s capability.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># remotes::install_github("prdm0/FastSurvivalSVM", force = T)</span></span>
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/prdm0/FastSurvivalSVM" class="external-link">FastSurvivalSVM</a></span><span class="op">)</span></span>
 <span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/prdm0/FastSurvivalSVM" class="external-link">FastSurvivalSVM</a></span><span class="op">)</span></span>
-<span></span>
+<span><span class="co"># Function to generate synthetic survival data</span></span>
 <span><span class="va">data_generation</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">n</span>, <span class="va">prop_cen</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="co"># 3 covariaveis</span></span>
 <span>    <span class="va">x1</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">1</span>, <span class="fl">1</span><span class="op">)</span></span>
 <span>    <span class="va">x2</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">2</span>, <span class="fl">2</span><span class="op">)</span></span>
 <span>    <span class="va">x3</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Exponential.html" class="external-link">rexp</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
-<span>    <span class="co"># parâmetros da Weibull</span></span>
+<span>    </span>
 <span>    <span class="va">xbeta</span> <span class="op">&lt;-</span> <span class="va">x1</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/MathFun.html" class="external-link">abs</a></span><span class="op">(</span><span class="va">x2</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span> <span class="fl">2</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">sin</a></span><span class="op">(</span><span class="va">x3</span> <span class="op">-</span> <span class="va">x2</span><span class="op">)</span><span class="op">^</span><span class="fl">2</span></span>
 <span>    <span class="va">shape</span> <span class="op">&lt;-</span> <span class="fl">2</span></span>
 <span>    <span class="va">scale</span> <span class="op">&lt;-</span> <span class="fl">5</span></span>
-<span>    <span class="co"># tempos verdadeiros (sem censura)</span></span>
+<span>    </span>
 <span>    <span class="va">u</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">0</span>, <span class="fl">1</span><span class="op">)</span></span>
 <span>    <span class="va">time_t</span> <span class="op">&lt;-</span> <span class="op">(</span><span class="op">(</span><span class="op">-</span><span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">log</a></span><span class="op">(</span><span class="fl">1</span> <span class="op">-</span> <span class="va">u</span><span class="op">)</span><span class="op">)</span><span class="op">^</span><span class="op">(</span><span class="fl">1</span> <span class="op">/</span> <span class="va">shape</span><span class="op">)</span><span class="op">)</span> <span class="op">*</span> <span class="va">scale</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="va">xbeta</span><span class="op">)</span></span>
-<span>    <span class="co"># selecionar quem será censurado e gerar os tempos</span></span>
+<span>    </span>
 <span>    <span class="va">ind_cens</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="va">n</span>, <span class="va">n</span> <span class="op">*</span> <span class="va">prop_cen</span>, replace <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
 <span>    <span class="va">time_gerado</span> <span class="op">&lt;-</span> <span class="va">time_t</span></span>
 <span>    <span class="va">time_gerado</span><span class="op">[</span><span class="va">ind_cens</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span></span>
@@ -152,22 +147,20 @@ hyperparameters</li>
 <span>        <span class="fu"><a href="https://rdrr.io/r/base/Extremes.html" class="external-link">min</a></span><span class="op">(</span><span class="va">time_t</span><span class="op">)</span>,</span>
 <span>        <span class="va">time_t</span><span class="op">[</span><span class="va">ind_cens</span><span class="op">]</span></span>
 <span>    <span class="op">)</span></span>
-<span>    <span class="co"># criando a indicadora de falha</span></span>
+<span>    </span>
 <span>    <span class="va">cens</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/rep.html" class="external-link">rep</a></span><span class="op">(</span><span class="fl">1</span>, <span class="va">n</span><span class="op">)</span></span>
 <span>    <span class="va">cens</span><span class="op">[</span><span class="va">ind_cens</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fl">0</span></span>
 <span></span>
-<span>    <span class="va">dados_g</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>    <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
 <span>        tempo <span class="op">=</span> <span class="va">time_gerado</span>,</span>
-<span>        cens <span class="op">=</span> <span class="va">cens</span>,</span>
-<span>        x1 <span class="op">=</span> <span class="va">x1</span>,</span>
-<span>        x2 <span class="op">=</span> <span class="va">x2</span>,</span>
-<span>        x3 <span class="op">=</span> <span class="va">x3</span></span>
+<span>        cens  <span class="op">=</span> <span class="va">cens</span>,</span>
+<span>        x1    <span class="op">=</span> <span class="va">x1</span>,</span>
+<span>        x2    <span class="op">=</span> <span class="va">x2</span>,</span>
+<span>        x3    <span class="op">=</span> <span class="va">x3</span></span>
 <span>    <span class="op">)</span></span>
-<span>    <span class="kw"><a href="https://rdrr.io/r/base/function.html" class="external-link">return</a></span><span class="op">(</span><span class="va">dados_g</span><span class="op">)</span></span>
 <span><span class="op">}</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">123</span><span class="op">)</span></span>
-<span></span>
 <span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/data_generation.html">data_generation</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">300L</span>, prop_cen <span class="op">=</span> <span class="fl">0.1</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">df</span><span class="op">)</span></span>
@@ -178,89 +171,73 @@ hyperparameters</li>
 <span><span class="co">#&gt; 4  17.1329416    1 1.0705084 -0.1050266 0.57069724</span></span>
 <span><span class="co">#&gt; 5   1.6826516    1 1.1292877  1.1256809 0.08437658</span></span>
 <span><span class="co">#&gt; 6   0.0492852    1 2.7150650  2.6623583 1.35933656</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
-<h2 id="wavelet-kernel-from-the-literature">Wavelet Kernel from the Literature<a class="anchor" aria-label="anchor" href="#wavelet-kernel-from-the-literature"></a>
+<h2 id="wavelet-kernel-implementation">Wavelet Kernel Implementation<a class="anchor" aria-label="anchor" href="#wavelet-kernel-implementation"></a>
 </h2>
-<p>The wavelet kernel used in Ará et al. (2016) is based on the wavelet
+<p>The wavelet kernel described in Ará et al. (2016) uses the following
 mother function:</p>
-<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>u</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>=</mo><mo>cos</mo><mrow><mo stretchy="true" form="prefix">(</mo><mn>1.75</mn><mspace width="0.167em"></mspace><mi>u</mi><mo stretchy="true" form="postfix">)</mo></mrow><mspace width="0.167em"></mspace><msup><mi>e</mi><mrow><mi>−</mi><msup><mi>u</mi><mn>2</mn></msup><mi>/</mi><mn>2</mn></mrow></msup><mi>.</mi></mrow><annotation encoding="application/x-tex">
-h(u) = \cos(1.75\,u)\,e^{-u^2/2}.
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>h</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>u</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>=</mo><mo>cos</mo><mrow><mo stretchy="true" form="prefix">(</mo><mn>1.75</mn><mi>u</mi><mo stretchy="true" form="postfix">)</mo></mrow><msup><mi>e</mi><mrow><mi>−</mi><msup><mi>u</mi><mn>2</mn></msup><mi>/</mi><mn>2</mn></mrow></msup></mrow><annotation encoding="application/x-tex">
+h(u) = \cos(1.75u) e^{-u^2 / 2}
 </annotation></semantics></math></p>
-<p>The kernel is:</p>
-<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>K</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>x</mi><mo>,</mo><mi>z</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>=</mo><munderover><mo>∏</mo><mrow><mi>k</mi><mo>=</mo><mn>1</mn></mrow><mi>p</mi></munderover><mi>h</mi><mspace width="-0.167em"></mspace><mrow><mo stretchy="true" form="prefix">(</mo><mfrac><mrow><msub><mi>x</mi><mi>k</mi></msub><mo>−</mo><msub><mi>z</mi><mi>k</mi></msub></mrow><mi>A</mi></mfrac><mo stretchy="true" form="postfix">)</mo></mrow><mi>.</mi></mrow><annotation encoding="application/x-tex">
-K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
+<p>And the kernel is defined as the product over covariates:</p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>K</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>x</mi><mo>,</mo><mi>z</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo>=</mo><munderover><mo>∏</mo><mrow><mi>k</mi><mo>=</mo><mn>1</mn></mrow><mi>p</mi></munderover><mi>h</mi><mrow><mo stretchy="true" form="prefix">(</mo><mfrac><mrow><msub><mi>x</mi><mi>k</mi></msub><mo>−</mo><msub><mi>z</mi><mi>k</mi></msub></mrow><mi>A</mi></mfrac><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">
+K(x, z) = \prod_{k=1}^p h\left( \frac{x_k - z_k}{A} \right)
 </annotation></semantics></math></p>
-<hr>
 <div class="section level3">
-<h3 id="wavelet-mother-function">Wavelet mother function<a class="anchor" aria-label="anchor" href="#wavelet-mother-function"></a>
+<h3 id="defining-the-kernel-function">1. Defining the Kernel Function<a class="anchor" aria-label="anchor" href="#defining-the-kernel-function"></a>
 </h3>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">wavelet_mother</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">u</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">cos</a></span><span class="op">(</span><span class="fl">1.75</span> <span class="op">*</span> <span class="va">u</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> <span class="va">u</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span></span>
-<span><span class="op">}</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="wavelet-kernel">Wavelet kernel<a class="anchor" aria-label="anchor" href="#wavelet-kernel"></a>
-</h3>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">wavelet_kernel</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span>, <span class="va">A</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span>
+<code class="sourceCode R"><span><span class="va">wavelet_kernel_fn</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span>, <span class="va">A</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span>
 <span>  <span class="va">x</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span>
 <span>  <span class="va">z</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/stopifnot.html" class="external-link">stopifnot</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="op">==</span> <span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
 <span>  <span class="va">u</span> <span class="op">&lt;-</span> <span class="op">(</span><span class="va">x</span> <span class="op">-</span> <span class="va">z</span><span class="op">)</span> <span class="op">/</span> <span class="va">A</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/prod.html" class="external-link">prod</a></span><span class="op">(</span><span class="fu">wavelet_mother</span><span class="op">(</span><span class="va">u</span><span class="op">)</span><span class="op">)</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/prod.html" class="external-link">prod</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">cos</a></span><span class="op">(</span><span class="fl">1.75</span> <span class="op">*</span> <span class="va">u</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> <span class="va">u</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="op">}</span></span></code></pre></div>
 </div>
 <div class="section level3">
-<h3 id="kernel-factory">Kernel factory<a class="anchor" aria-label="anchor" href="#kernel-factory"></a>
+<h3 id="instantiating-the-kernel">2. Instantiating the Kernel<a class="anchor" aria-label="anchor" href="#instantiating-the-kernel"></a>
 </h3>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">make_wavelet_kernel</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">A</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">A</span><span class="op">)</span></span>
-<span>  <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="fu">wavelet_kernel</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span>, A <span class="op">=</span> <span class="va">A</span><span class="op">)</span></span>
-<span><span class="op">}</span></span></code></pre></div>
-<hr>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">my_wavelet</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/grid_kernel.html">grid_kernel</a></span><span class="op">(</span><span class="va">wavelet_kernel_fn</span>, A <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/class.html" class="external-link">class</a></span><span class="op">(</span><span class="va">my_wavelet</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "fastsvm_custom_kernel" "function"</span></span></code></pre></div>
 </div>
 </div>
 <div class="section level2">
-<h2 id="fitting-the-model">Fitting the model<a class="anchor" aria-label="anchor" href="#fitting-the-model"></a>
+<h2 id="fitting-the-model">Fitting the Model<a class="anchor" aria-label="anchor" href="#fitting-the-model"></a>
 </h2>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">fit_wavelet</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/fastsvm.html">fastsvm</a></span><span class="op">(</span></span>
-<span>  data       <span class="op">=</span> <span class="va">df</span>,</span>
-<span>  time_col   <span class="op">=</span> <span class="st">"tempo"</span>,</span>
-<span>  delta_col  <span class="op">=</span> <span class="st">"cens"</span>,</span>
-<span>  kernel     <span class="op">=</span> <span class="fu">make_wavelet_kernel</span><span class="op">(</span>A <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span>,</span>
-<span>  alpha      <span class="op">=</span> <span class="fl">1</span>,</span>
-<span>  rank_ratio <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  data          <span class="op">=</span> <span class="va">df</span>,</span>
+<span>  time_col      <span class="op">=</span> <span class="st">"tempo"</span>,</span>
+<span>  delta_col     <span class="op">=</span> <span class="st">"cens"</span>,</span>
+<span>  kernel        <span class="op">=</span> <span class="va">my_wavelet</span>,</span>
+<span>  alpha         <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  rank_ratio    <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>  fit_intercept <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="predictions">Predictions<a class="anchor" aria-label="anchor" href="#predictions"></a>
 </h2>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">preds</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/predict.html" class="external-link">predict</a></span><span class="op">(</span><span class="va">fit_wavelet</span>, <span class="va">df</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">preds</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1]  1.4810330  1.6302696 49.1482327  5.0829020  1.1056405  0.1682349</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
-<h2 id="concordance-index">Concordance Index<a class="anchor" aria-label="anchor" href="#concordance-index"></a>
+<h2 id="concordance-index-c-index">Concordance Index (C-index)<a class="anchor" aria-label="anchor" href="#concordance-index-c-index"></a>
+</h2>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">c_index</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/score.html">score</a></span><span class="op">(</span><span class="va">fit_wavelet</span>, <span class="va">df</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/cat.html" class="external-link">cat</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"C-index on training data: %.4f\n"</span>, <span class="va">c_index</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; C-index on training data: 0.9373</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="model-summary">Model Summary<a class="anchor" aria-label="anchor" href="#model-summary"></a>
 </h2>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/score.html">score</a></span><span class="op">(</span><span class="va">fit_wavelet</span>, <span class="va">df</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] 0.9372507</span></span></code></pre></div>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="summary">Summary<a class="anchor" aria-label="anchor" href="#summary"></a>
-</h2>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/summary.html" class="external-link">summary</a></span><span class="op">(</span><span class="va">fit_wavelet</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Summary of FastKernelSurvivalSVM model (kernel survival SVM)</span></span>
 <span><span class="co">#&gt; ======================================================================</span></span>
@@ -284,73 +261,14 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; - Number of optimization iterations: 14</span></span>
 <span><span class="co">#&gt; ======================================================================</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
-<h2 id="extracting-coefficients-and-parameters">Extracting coefficients and parameters<a class="anchor" aria-label="anchor" href="#extracting-coefficients-and-parameters"></a>
+<h2 id="extracting-coefficients-and-parameters">Extracting Coefficients and Parameters<a class="anchor" aria-label="anchor" href="#extracting-coefficients-and-parameters"></a>
 </h2>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef</a></span><span class="op">(</span><span class="va">fit_wavelet</span><span class="op">)</span></span>
-<span><span class="co">#&gt;   [1] -6.233144e-04  3.609978e-01  2.775394e+00  1.215121e+00  4.199461e-01</span></span>
-<span><span class="co">#&gt;   [6] -1.227737e+00 -5.638542e-01  3.078096e-01 -2.115853e-01 -2.278152e-01</span></span>
-<span><span class="co">#&gt;  [11] -2.154668e+00 -7.089458e-01 -7.224176e-01 -6.851592e-09  6.055903e-01</span></span>
-<span><span class="co">#&gt;  [16] -1.355803e+00  1.792222e-02 -2.114463e-02 -1.519555e+00  7.040990e-01</span></span>
-<span><span class="co">#&gt;  [21]  3.833180e-01 -8.530300e-01  4.653891e-01  5.520609e-01  2.729965e-01</span></span>
-<span><span class="co">#&gt;  [26]  9.166161e-01  2.915477e-01  3.640637e-01  4.959900e-01  5.475223e-08</span></span>
-<span><span class="co">#&gt;  [31] -3.110585e-01 -5.216327e-14 -8.482046e-01 -2.149278e+00 -1.882695e+00</span></span>
-<span><span class="co">#&gt;  [36] -6.689382e-01  5.496115e-01 -2.853692e-02 -8.726949e-01  4.274951e-01</span></span>
-<span><span class="co">#&gt;  [41]  9.066845e-01  3.389110e-01  1.332373e-01 -6.982459e-01 -4.054441e-01</span></span>
-<span><span class="co">#&gt;  [46] -2.033919e-09 -3.716729e-01  7.712604e-01  2.630931e+00  3.291047e-01</span></span>
-<span><span class="co">#&gt;  [51]  7.159212e-09 -2.081302e-09  5.902789e-01 -1.412635e+00  1.555222e+00</span></span>
-<span><span class="co">#&gt;  [56] -1.092778e+00  5.820107e-01 -7.676696e-01  4.374217e-01 -1.191871e+00</span></span>
-<span><span class="co">#&gt;  [61] -5.676285e-01  2.952760e-02 -3.535155e-01  6.524381e-01  5.268626e-01</span></span>
-<span><span class="co">#&gt;  [66] -1.369107e-01 -1.643894e+00  1.981461e+00 -1.533760e+00  6.217261e-02</span></span>
-<span><span class="co">#&gt;  [71] -3.073727e-02  4.845436e-01  6.488701e-02 -3.043737e-01 -8.514972e-01</span></span>
-<span><span class="co">#&gt;  [76]  1.569692e+00  1.510062e+00  1.032579e-01 -3.817369e-01 -6.681495e-01</span></span>
-<span><span class="co">#&gt;  [81] -1.591361e+00 -4.057348e-01  3.169548e-01  1.095955e+00 -2.458395e-01</span></span>
-<span><span class="co">#&gt;  [86] -1.634218e+00 -6.432167e-01  1.748872e+00  2.605258e-01 -1.330300e+00</span></span>
-<span><span class="co">#&gt;  [91]  1.020114e+00 -2.466145e-01  1.869565e-08  7.982522e-01  1.136862e+00</span></span>
-<span><span class="co">#&gt;  [96] -1.719244e-01  2.260583e+00 -1.021559e+00  7.293904e-01  2.565817e-01</span></span>
-<span><span class="co">#&gt; [101]  7.528758e-01  5.833417e-01  9.197425e-01  2.348460e-03  1.717626e-01</span></span>
-<span><span class="co">#&gt; [106]  5.226837e-01  4.618786e-01  1.128520e+00 -8.458267e-01 -3.144886e-02</span></span>
-<span><span class="co">#&gt; [111] -6.178650e-01 -1.031209e+00  2.925325e-09  3.650784e-01  6.321126e-01</span></span>
-<span><span class="co">#&gt; [116] -9.584232e-01  2.608585e-01  3.362230e-01 -2.261489e-01  4.172555e-01</span></span>
-<span><span class="co">#&gt; [121] -9.273181e-01  7.952938e-01 -5.458255e-01 -1.839338e+00  5.293850e-01</span></span>
-<span><span class="co">#&gt; [126]  7.128070e-01 -3.314013e-11  3.718977e-01 -2.996378e-02  1.333050e-02</span></span>
-<span><span class="co">#&gt; [131] -9.101121e-01 -2.365092e-01 -2.843419e-01  1.157042e+00 -8.045669e-01</span></span>
-<span><span class="co">#&gt; [136]  5.826719e-01  4.215961e-01 -3.197180e-09 -9.161763e-01  3.479752e-09</span></span>
-<span><span class="co">#&gt; [141]  6.538703e-01 -1.100509e-01 -2.410317e-01  2.585112e-01  4.560266e-01</span></span>
-<span><span class="co">#&gt; [146]  9.591079e-02  3.071678e-01  8.018663e-02 -3.570017e-01  2.734949e-09</span></span>
-<span><span class="co">#&gt; [151] -1.568386e+00 -1.054048e+00  4.188202e-01  6.771487e-01 -5.407345e-01</span></span>
-<span><span class="co">#&gt; [156] -2.128502e-01 -5.353301e-09 -3.510319e-01 -1.849091e-01 -3.707249e-01</span></span>
-<span><span class="co">#&gt; [161] -5.262415e-01  3.742449e-01 -1.711958e-02 -7.809766e-01  9.693243e-01</span></span>
-<span><span class="co">#&gt; [166] -7.914707e-01 -8.233684e-01 -1.435444e-01 -5.844298e-01 -9.487616e-01</span></span>
-<span><span class="co">#&gt; [171] -1.046526e+00  5.330308e-08 -6.308074e-02 -2.713349e-10  5.874533e-01</span></span>
-<span><span class="co">#&gt; [176] -3.794037e-01 -8.242361e-01 -2.323164e-01 -1.283673e-01 -3.162067e-01</span></span>
-<span><span class="co">#&gt; [181]  9.599465e-01 -1.222172e-08 -3.626619e-09  4.865868e-01 -6.600457e-01</span></span>
-<span><span class="co">#&gt; [186]  6.984203e-02 -5.058493e-01 -3.814621e-02  2.441497e-09  3.320593e-01</span></span>
-<span><span class="co">#&gt; [191] -7.975667e-11 -1.009332e+00  2.868977e-02  9.584368e-01 -4.690426e-01</span></span>
-<span><span class="co">#&gt; [196]  5.907207e-01 -9.874087e-01  3.122165e-08 -1.123369e-09  1.503473e-01</span></span>
-<span><span class="co">#&gt; [201]  9.804290e-01  4.915337e+00 -1.086566e-01 -5.517371e-03 -6.336575e-01</span></span>
-<span><span class="co">#&gt; [206] -9.860670e-01  4.703311e-01  9.699259e-02 -1.548804e+00  1.018082e-01</span></span>
-<span><span class="co">#&gt; [211] -3.580406e-01 -1.948879e-02 -9.687468e-01  1.994581e-01  2.087723e-01</span></span>
-<span><span class="co">#&gt; [216]  5.799069e-01 -1.061311e+00 -3.727635e-03  1.049061e-02  4.198502e-01</span></span>
-<span><span class="co">#&gt; [221]  1.677435e-01 -1.448430e+00  2.621671e-09 -7.516267e-01 -6.320593e-01</span></span>
-<span><span class="co">#&gt; [226] -2.367839e-01  6.540102e-01 -6.484377e-01  1.288658e-01  9.281113e-01</span></span>
-<span><span class="co">#&gt; [231] -1.770072e+00  2.466570e-08  6.352954e-01 -1.033912e+00 -3.011960e-01</span></span>
-<span><span class="co">#&gt; [236]  3.076820e-01 -5.120044e-01  2.156879e-01  6.478291e-01  1.935244e-02</span></span>
-<span><span class="co">#&gt; [241]  9.421148e-01  5.499636e-08 -1.605669e+00 -7.004130e-02 -3.880437e-02</span></span>
-<span><span class="co">#&gt; [246] -1.582391e+00  1.335099e+00  9.279318e-01  6.343757e-04  1.175122e+00</span></span>
-<span><span class="co">#&gt; [251]  1.228740e-01  3.084952e-01 -1.479807e-01 -2.377368e-02 -1.434106e-09</span></span>
-<span><span class="co">#&gt; [256] -1.141565e-01 -1.571912e+00  1.013643e+00 -3.543714e-01  4.445860e-01</span></span>
-<span><span class="co">#&gt; [261]  8.818369e-01 -1.284040e-01  7.618414e-01 -1.645331e+00  2.407406e+00</span></span>
-<span><span class="co">#&gt; [266] -8.093383e-01  1.907745e-08  1.394743e+00 -3.967658e-01 -4.267168e-01</span></span>
-<span><span class="co">#&gt; [271] -9.746481e-01 -4.713178e-01  1.460025e+00  1.659757e-01 -6.086360e-01</span></span>
-<span><span class="co">#&gt; [276] -5.103246e-02 -1.091869e+00 -2.038737e-01 -9.652461e-02 -2.837721e-01</span></span>
-<span><span class="co">#&gt; [281] -3.884721e-01 -7.394158e-02  3.318200e-01 -9.690904e-01  2.086743e+00</span></span>
-<span><span class="co">#&gt; [286] -6.223767e-01 -2.102032e-01  1.915257e+00 -5.746362e-02  1.604825e-01</span></span>
-<span><span class="co">#&gt; [291] -1.923961e+00 -1.236030e+00 -8.627589e-01  5.049662e-01 -1.101796e+00</span></span>
-<span><span class="co">#&gt; [296]  1.170278e+00 -1.103640e+00 -9.239156e-01 -1.132837e+00 -1.932493e+00</span></span>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/coef.html" class="external-link">coef</a></span><span class="op">(</span><span class="va">fit_wavelet</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] -0.0006233144  0.3609977816  2.7753938725  1.2151206510  0.4199461135</span></span>
+<span><span class="co">#&gt; [6] -1.2277373095</span></span>
 <span><span class="fu"><a href="../reference/get_params_fastsvm.html">get_params_fastsvm</a></span><span class="op">(</span><span class="va">fit_wavelet</span><span class="op">)</span></span>
 <span><span class="co">#&gt; $alpha</span></span>
 <span><span class="co">#&gt; [1] 1</span></span>
@@ -368,7 +286,7 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <span><span class="co">#&gt; NULL</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $kernel</span></span>
-<span><span class="co">#&gt; &lt;function make_python_function.&lt;locals&gt;.python_function at 0x12a013b00&gt;</span></span>
+<span><span class="co">#&gt; &lt;function make_python_function.&lt;locals&gt;.python_function at 0x129eabb00&gt;</span></span>
 <span><span class="co">#&gt;  signature: (*args, **kwargs)</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $kernel_params</span></span>
@@ -394,23 +312,12 @@ K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $verbose</span></span>
 <span><span class="co">#&gt; [1] FALSE</span></span></code></pre></div>
-<hr>
 </div>
 <div class="section level2">
 <h2 id="conclusion">Conclusion<a class="anchor" aria-label="anchor" href="#conclusion"></a>
 </h2>
-<p>This vignette demonstrated how to:</p>
-<ul>
-<li>Implement custom kernels in R<br>
-</li>
-<li>Use the wavelet kernel with FastSurvivalSVM<br>
-</li>
-<li>Fit, predict, compute the C-index<br>
-</li>
-<li>Extract coefficients and hyperparameters</li>
-</ul>
-<p>The package enables flexible experimentation with kernel survival
-SVMs directly from R.</p>
+<p>This vignette demonstrated the streamlined workflow for custom
+kernels in FastSurvivalSVM.</p>
 </div>
   </div>
 

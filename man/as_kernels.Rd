@@ -7,102 +7,10 @@
 as_kernels(tune_results, kernel_mix)
 }
 \arguments{
-\item{tune_results}{An object of class \code{"random_machines_tune"} returned
-by \code{\link{tune_random_machines}}.}
+\item{tune_results}{The results from \code{tune_random_machines}.}
 
-\item{kernel_mix}{The original named list of base kernel configurations that was
-passed to \code{tune_random_machines}. This is required to preserve
-fixed parameters (like \code{rank_ratio} or \code{fit_intercept}) that
-were not part of the tuning grid.}
-}
-\value{
-A named list of fully specified kernel configurations, ready for training.
+\item{kernel_mix}{The original base configuration list.}
 }
 \description{
-A convenience function that merges the optimized hyperparameters found by
-\code{\link{tune_random_machines}} into the original base kernel configuration.
-The resulting list is formatted specifically to be passed directly to the
-\code{kernels} argument of \code{\link{random_machines}}.
-}
-\details{
-This eliminates the need to manually extract \code{best_params} and use
-\code{modifyList} in your workflow.
-}
-\examples{
-\dontrun{
-if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly = TRUE)) {
-  library(FastSurvivalSVM)
-  set.seed(42)
-
-  # 1. Prepare Data
-  df <- data_generation(n = 100, prop_cen = 0.2)
-  train_df <- df[1:80, ]
-  test_df  <- df[81:100, ]
-
-  # 2. Define Custom Kernel Factories
-  make_wavelet <- function(A = 1) {
-    force(A)
-    function(x, z) {
-      u <- (as.numeric(x) - as.numeric(z)) / A
-      prod(cos(1.75 * u) * exp(-0.5 * u^2))
-    }
-  }
-
-  make_poly_custom <- function(degree = 2, coef0 = 1) {
-    force(degree); force(coef0)
-    function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
-  }
-
-  # 3. Define Base Mix (Fixed Parameters)
-  #    Using Regression Mode (rank_ratio = 0)
-  #    We include 2 Standard Kernels and 2 Custom Kernels
-  kernel_mix <- list(
-    linear_std = list(kernel = "linear", rank_ratio = 0.0),
-    rbf_std    = list(kernel = "rbf",    rank_ratio = 0.0),
-    wavelet_ok = list(rank_ratio = 0.0), # Kernel comes from grid
-    poly_ok    = list(rank_ratio = 0.0)  # Kernel comes from grid
-  )
-
-  # 4. Define Grids (3 values per parameter for robust tuning)
-  wav_vars  <- create_kernel_variants(make_wavelet, A = c(0.5, 1, 2))
-  poly_vars <- create_kernel_variants(make_poly_custom, degree = c(2, 3, 4), coef0 = 1)
-
-  param_grids <- list(
-    linear_std = list(alpha = c(0.01, 0.1, 1)),
-    rbf_std    = list(alpha = c(0.01, 0.1, 1), gamma = c(0.001, 0.01, 0.1)),
-    wavelet_ok = list(kernel = wav_vars, alpha = c(0.01, 0.1, 1)),
-    poly_ok    = list(kernel = poly_vars, alpha = c(0.01, 0.1, 1))
-  )
-
-  # 5. Run Tuning
-  tune_res <- tune_random_machines(
-    data = train_df,
-    time_col = "tempo", 
-    delta_col = "cens",
-    kernel_mix = kernel_mix,
-    param_grids = param_grids,
-    cv = 3, 
-    cores = parallel::detectCores(), 
-  )
-
-  # 6. The Bridge: Automatically prepare kernels for training
-  final_kernels <- as_kernels(tune_res, kernel_mix)
-
-  # 7. Train Final Model
-  rm_model <- random_machines(
-    data = train_df,
-    newdata = test_df,
-    time_col = "tempo", 
-    delta_col = "cens",
-    kernels = final_kernels, # Direct usage!
-    B = 10,
-    cores = parallel::detectCores()
-  )
-
-  print(rm_model)
-
-  # 8. Final Evaluation on Test Set
-  score(rm_model, test_df)
-}
-}
+Prepare Tuned Kernels for Random Machines
 }

@@ -7,12 +7,12 @@
 \method{score}{random_machines}(object, data, ...)
 }
 \arguments{
-\item{object}{An object of class \code{"random_machines"}.}
+\item{object}{A fitted \code{random_machines} model.}
 
-\item{data}{Validation data (must contain time/event cols).}
+\item{data}{Validation data containing time and event columns.}
 
-\item{...}{Not used.}
+\item{...}{Additional arguments.}
 }
 \description{
-Computes the concordance index for the aggregated predictions.
+Score method for Random Machines
 }

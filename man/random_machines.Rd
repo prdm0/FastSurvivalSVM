@@ -30,177 +30,147 @@ random_machines(
 
 \item{delta_col}{Name of the column with the event indicator (1 = event, 0 = censored).}
 
-\item{kernels}{A named list of kernel specifications. Each element must be a list
-of arguments to the estimator (e.g., \code{kernel}, \code{alpha},
-\code{rank_ratio}, \code{fit_intercept}, \code{max_iter}, etc.).}
+\item{kernels}{A named list of kernel specifications.}
 
 \item{B}{Integer. Number of bootstrap samples.}
 
-\item{mtry}{Integer or Numeric. Number of variables to randomly sample at each split.
-\itemize{
-  \item \code{NULL} (default): Use all variables.
-  \item Integer >= 1: Select exactly \code{mtry} variables.
-  \item Numeric < 1: Select \code{mtry} fraction of variables (e.g., 0.5 = 50\%).
-}}
+\item{mtry}{Integer or Numeric. Number of variables to randomly sample at each split.}
 
-\item{crop}{Numeric or NULL. Threshold for kernel selection probabilities.
-If provided (e.g., \code{0.10}), any kernel with a calculated weight
-less than or equal to this value in the holdout phase will be
-discarded (weight set to 0), and the remaining weights will be
-rescaled to sum to 1.}
+\item{crop}{Numeric or NULL. Threshold for kernel selection probabilities.}
 
-\item{beta_kernel}{Numeric. Temperature for kernel selection probabilities
-(based on internal holdout C-index).}
+\item{beta_kernel}{Numeric. Temperature for kernel selection probabilities.}
 
-\item{beta_bag}{Numeric. Temperature for ensemble weighting
-(based on OOB C-index of each bootstrap model).}
+\item{beta_bag}{Numeric. Temperature for ensemble weighting.}
 
 \item{cores}{Integer. Number of parallel workers (via \code{mirai}).}
 
-\item{seed}{Optional integer passed to \code{mirai::daemons} and used for
-internal sampling.}
+\item{seed}{Optional integer passed to \code{mirai::daemons}.}
 
-\item{prop_holdout}{Numeric in (0, 1). Proportion of the original training data
-used as internal validation when computing the kernel selection weights.
-For example, \code{prop_holdout = 0.20} means that 20\% of the rows are
-used as validation and the remaining 80\% as training in the weighting phase.
-If the dataset is too small for this split (either side < 10 rows),
-the function falls back to resubstitution.}
+\item{prop_holdout}{Numeric in (0, 1). Proportion for internal holdout.}
 
-\item{.progress}{Logical. Show progress bar for the bootstrap loop?}
+\item{.progress}{Logical. Show progress bar?}
 }
 \value{
-An object of class \code{"random_machines"} containing:
-  \itemize{
-    \item \code{preds}: Numeric vector of aggregated predictions for \code{newdata}.
-    \item \code{weights}: Vector of weights assigned to each bootstrap model.
-    \item \code{chosen_kernels}: Vector of kernel names selected in each bootstrap.
-    \item \code{c_indices}: Vector of OOB C-indices for each bootstrap.
-    \item \code{rank_ratio}: Rank ratio stored from the first successful model.
-    \item \code{time_col}, \code{delta_col}: Names of the survival columns.
-    \item \code{ensemble}: List with serialized models (Python pickle), features and params.
-    \item \code{mtry}: The mtry value used.
-    \item \code{kernel_lambdas}: The kernel selection probabilities (fixed from holdout).
-    \item \code{kernel_names}: The names of the kernels used in bagging.
-    \item \code{prop_holdout}: The proportion used for the internal holdout split.
-    \item \code{crop}: The crop threshold used.
-  }
+An object of class \code{"random_machines"}.
 }
 \description{
-Fits an ensemble of models using bootstrap aggregation (bagging) and
-computes predictions for \code{newdata}. This function is also referred to
-as "Random Machines" in the context of kernel survival machines.
-}
-\details{
-\strong{Internal Holdout for Kernel Weights:}
-Instead of using training performance (resubstitution) to define the
-selection probabilities of each kernel, this function splits the training
-data into an internal training/validation set according to \code{prop_holdout}.
-This mimics the behavior of the serial implementation where weights are
-fixed based on a pre-bagging holdout.
-
-\strong{Architecture:}
-This function adopts a "Train-and-Predict" strategy:
-\itemize{
-  \item It accepts \code{newdata} and computes predictions inside the
-        parallel workers (for each bootstrap model).
-  \item It stores a serialized version (Python pickle) of each
-        fitted model to allow future predictions via
-        \code{\link{predict.random_machines}}.
-}
-
-\strong{Random Subspace (mtry):}
-The \code{mtry} parameter allows for random selection of a subset of
-covariates in each base learner, similar to Random Forests.
+Fits an ensemble of models using bootstrap aggregation (bagging).
 }
 \examples{
 \dontrun{
 if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
   library(FastSurvivalSVM)
 
-  ## 1. Data generation
-  set.seed(3)
-  df <- data_generation(n = 300, prop_cen = 0.3)
+  # 1. Data Generation and Split
+  set.seed(42)
+  df <- data_generation(n = 250, prop_cen = 0.25)
+  train_idx <- sample(nrow(df), 200)
+  train_df  <- df[train_idx, ]
+  test_df   <- df[-train_idx, ]
 
-  ## Train/Test split
-  idx <- sample(seq_len(nrow(df)), 200)
-  train_df <- df[idx, ]
-  test_df  <- df[-idx, ]
-
-  ## 2. Custom Kernel Factories ----------------------------------
-  make_wavelet <- function(A = 1) {
-    force(A)
-    function(x, z) {
-      u <- (as.numeric(x) - as.numeric(z)) / A
-      prod(cos(1.75 * u) * exp(-0.5 * u^2))
-    }
+  # 2. Define Custom Kernel Functions (Math Only)
+  
+  # Wavelet Kernel
+  my_wavelet <- function(x, z, A) {
+    u <- (as.numeric(x) - as.numeric(z)) / A
+    prod(cos(1.75 * u) * exp(-0.5 * u^2))
   }
 
-  make_poly <- function(degree = 3, coef0 = 1) {
-    force(degree); force(coef0)
-    function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
+  # Polynomial Kernel
+  my_poly <- function(x, z, degree, coef0) {
+    (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
   }
 
-  ## 3. Kernel Specifications (rank_ratio = 0 for Regression / Time)
+  # 3. Tuning Workflow
+  #    Before training the ensemble, we optimize the hyperparameters for each
+  #    kernel family using 'tune_random_machines'.
+
+  # A. Define Kernel Mix (Fixed Structure)
+  #    We set rank_ratio = 0 because we want to solve a Regression problem.
   kernel_mix <- list(
-    linear   = list(
-      kernel        = "linear",
-      alpha         = 1,
-      rank_ratio    = 0,
-      fit_intercept = TRUE
+    linear_std = list(kernel = "linear", rank_ratio = 0),
+    rbf_std    = list(kernel = "rbf",    rank_ratio = 0),
+    wavelet_ok = list(rank_ratio = 0),
+    poly_ok    = list(rank_ratio = 0)
+  )
+
+  # B. Define Parameter Grids (Search Space)
+  #    We define 4 values for each hyperparameter to be tuned.
+  param_grids <- list(
+    # Linear: Tune regularization (alpha)
+    linear_std = list(
+      alpha = c(0.01, 0.1, 1.0, 10.0)
     ),
-    rbf      = list(
-      kernel        = "rbf",
-      alpha         = 0.5,
-      gamma         = 0.1,
-      rank_ratio    = 0,
-      fit_intercept = TRUE
+
+    # RBF: Tune alpha and kernel width (gamma)
+    rbf_std = list(
+      alpha = c(0.01, 0.1, 1.0, 10.0),
+      gamma = c(0.001, 0.01, 0.1, 1.0)
     ),
-    poly_std = list(
-      kernel        = "poly",
-      degree        = 2L,
-      alpha         = 1,
-      rank_ratio    = 0,
-      fit_intercept = TRUE
+
+    # Custom Wavelet: Tune alpha and the kernel parameter 'A'
+    # 'grid_kernel' generates the variants for the custom function.
+    wavelet_ok = list(
+      kernel = grid_kernel(my_wavelet, A = c(0.5, 1.0, 1.5, 2.0)),
+      alpha  = c(0.01, 0.1, 1.0, 10.0)
     ),
-    wavelet  = list(
-      kernel        = make_wavelet(A = 1),
-      alpha         = 1,
-      rank_ratio    = 0,
-      fit_intercept = TRUE
-    ),
-    poly_fun = list(
-      kernel        = make_poly(degree = 2L),
-      alpha         = 1,
-      rank_ratio    = 0,
-      fit_intercept = TRUE
+
+    # Custom Poly: Tune alpha and the degree
+    # (coef0 kept fixed at 1 for this example)
+    poly_ok = list(
+      kernel = grid_kernel(my_poly, degree = c(2, 3, 4, 5), coef0 = 1),
+      alpha  = c(0.01, 0.1, 1.0, 10.0)
     )
   )
 
-  ## 4. Run Random Machines with internal holdout for kernel weights
-  rm_results <- random_machines(
+  # C. Execute Hybrid Tuning
+  #    This uses Python threads for Native kernels and R processes for Custom ones.
+  cat("Starting hyperparameter tuning...\n")
+  tune_res <- tune_random_machines(
+    data        = train_df,
+    time_col    = "tempo",
+    delta_col   = "cens",
+    kernel_mix  = kernel_mix,
+    param_grids = param_grids,
+    cv          = 3,
+    cores       = parallel::detectCores(),
+    verbose     = 1
+  )
+  
+  # D. Bridge: Extract Best Hyperparameters
+  #    This creates the final configuration list ready for the ensemble.
+  final_kernels <- as_kernels(tune_res, kernel_mix)
+  
+  print("Best configurations found:")
+  print(final_kernels)
+
+  # 4. Train Random Machines (Bagging)
+  #    Now we use the optimized 'final_kernels' to train the ensemble.
+  
+  cat("Training Random Machines ensemble...\n")
+  rm_model <- random_machines(
     data         = train_df,
     newdata      = test_df,
     time_col     = "tempo",
     delta_col    = "cens",
-    kernels      = kernel_mix,
-    B            = 50,
-    mtry         = NULL,
-    beta_kernel  = 1,
-    beta_bag     = 1,
+    kernels      = final_kernels, # Use tuned kernels
+    B            = 50,            # Number of bootstrap samples
+    mtry         = NULL,          # Use all features (Random Forest style)
+    crop         = 0.10,          # Prune kernels with weight < 10\%
+    prop_holdout = 0.20,          # 20\% internal holdout for weighting
     cores        = parallel::detectCores(),
     seed         = 42,
-    prop_holdout = 0.20,
-    crop         = 0.15,  # Eliminate kernels with weight <= 0.15
     .progress    = TRUE
   )
 
-  print(rm_results)
-
-  ## 5. Score on independent test set using S3 method
-  cidx_test <- score(rm_results, test_df)
-  cat(sprintf("Test C-index (Random Machines): \%.4f\n", cidx_test))
+  # 5. Evaluate and Print
+  print(rm_model)
+  
+  cidx <- score(rm_model, test_df)
+  cat(sprintf("Final Test C-Index: \%.4f\n", cidx))
 }
 }
-
+}
+\seealso{
+\code{\link{tune_random_machines}}, \code{\link{grid_kernel}}, \code{\link{fastsvm}}
 }

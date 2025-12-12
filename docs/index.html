@@ -93,19 +93,18 @@
 <blockquote>
 <p><strong>High-Performance Kernel Survival Support Vector Machines for R</strong></p>
 </blockquote>
-<p><strong>FastSurvivalSVM</strong> provides a seamless R interface to the state-of-the-art <strong>FastKernelSurvivalSVM</strong> implementation from the Python library <code>scikit-survival</code>.</p>
-<p>Beyond standard modeling, it introduces <strong>Random Machines</strong>, a powerful ensemble method that combines bagging, random feature subspaces, and adaptive kernel selection to maximize predictive performance on right-censored data.</p>
+<p><strong>FastSurvivalSVM</strong> bridges the gap between R and the state-of-the-art <strong>FastKernelSurvivalSVM</strong> implementation from the Python library <code>scikit-survival</code>.</p>
+<p>It goes beyond standard modeling by introducing <strong>Random Machines</strong>, a powerful ensemble method that combines bagging, random feature subspaces, and adaptive kernel selection to maximize predictive performance on right-censored data.</p>
 <hr>
 <div class="section level2">
 <h2 id="zap-why-fastsurvivalsvm">⚡ Why FastSurvivalSVM?<a class="anchor" aria-label="anchor" href="#zap-why-fastsurvivalsvm"></a>
 </h2>
 <ul>
-<li>🚀 <strong>Speed &amp; Efficiency:</strong> Parallel execution powered by <code>mirai</code> and optimized Python backend.</li>
-<li>🧠 <strong>Random Machines:</strong> Ensemble algorithm that automatically selects the best kernels using internal holdout.</li>
-<li>✂️ <strong>Adaptive Pruning:</strong> The <code>crop</code> parameter discards weak kernels from the ensemble.</li>
-<li>🎨 <strong>Custom Kernels in R:</strong> Define fully custom kernel functions (e.g., Wavelet) using closures and function factories.</li>
+<li>🚀 <strong>Speed &amp; Efficiency:</strong> Hybrid parallel execution using <code>mirai</code> (for R kernels) and optimized C++/Python threads (for native kernels).</li>
+<li>🧠 <strong>Random Machines:</strong> A novel ensemble algorithm that automatically selects the best kernel for each bootstrap sample using an internal holdout strategy.</li>
+<li>🎨 <strong>Custom Kernels Made Easy:</strong> Define custom kernels using simple R functions via the <code><a href="reference/grid_kernel.html">grid_kernel()</a></code> helper—no complex closures required.</li>
+<li>🎛️ <strong>Unified Tuning:</strong> Tune native and custom kernels simultaneously with <code><a href="reference/tune_random_machines.html">tune_random_machines()</a></code>.</li>
 <li>🛠️ <strong>Zero Configuration:</strong> Automatic Python environment handling via <code>reticulate</code>.</li>
-<li>✨ <strong>Modern Output:</strong> Clean, readable console summaries with <code>cli</code>.</li>
 </ul>
 <hr>
 </div>
@@ -116,11 +115,7 @@
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># install.packages("remotes")</span></span>
 <span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"prdm0/FastSurvivalSVM"</span>, force <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
-<blockquote>
-<p><strong>Note:</strong> On the first run, the package will automatically set up a minimal Python environment.<br>
-No manual Python installation required.</p>
-</blockquote>
-<hr>
+<p>Note: On the first run, the package will automatically set up a minimal Python environment. No manual Python installation is required.</p>
 </div>
 <div class="section level2">
 <h2 id="checkered_flag-quick-start-single-model">🏁 Quick Start: Single Model<a class="anchor" aria-label="anchor" href="#checkered_flag-quick-start-single-model"></a>
@@ -130,109 +125,121 @@ No manual Python installation required.</p>
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/prdm0/FastSurvivalSVM" class="external-link">FastSurvivalSVM</a></span><span class="op">)</span></span>
 <span></span>
 <span><span class="co"># 1. Generate synthetic survival data</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">123</span><span class="op">)</span></span>
-<span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/data_generation.html">data_generation</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">100</span>, prop_cen <span class="op">=</span> <span class="fl">0.3</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">42</span><span class="op">)</span></span>
+<span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/data_generation.html">data_generation</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">200</span>, prop_cen <span class="op">=</span> <span class="fl">0.25</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># 2. Fit the model</span></span>
+<span><span class="co"># 2. Fit the model (Regression mode)</span></span>
 <span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/fastsvm.html">fastsvm</a></span><span class="op">(</span></span>
 <span>  data      <span class="op">=</span> <span class="va">df</span>,</span>
 <span>  time_col  <span class="op">=</span> <span class="st">"tempo"</span>,</span>
 <span>  delta_col <span class="op">=</span> <span class="st">"cens"</span>,</span>
-<span>  kernel    <span class="op">=</span> <span class="st">"rbf"</span>,</span>
-<span>  alpha     <span class="op">=</span> <span class="fl">1</span></span>
+<span>  kernel    <span class="op">=</span> <span class="st">"rbf"</span>,   <span class="co"># Native Scikit-learn kernel</span></span>
+<span>  alpha     <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  rank_ratio <span class="op">=</span> <span class="fl">0</span>       <span class="co"># 0 = Regression, 1 = Ranking</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># 3. Predict &amp; score</span></span>
+<span><span class="co"># 3. Predict &amp; Score</span></span>
 <span><span class="va">pred</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/predict.html" class="external-link">predict</a></span><span class="op">(</span><span class="va">fit</span>, <span class="va">df</span><span class="op">)</span></span>
 <span><span class="va">c_index</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/score.html">score</a></span><span class="op">(</span><span class="va">fit</span>, <span class="va">df</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">c_index</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] 0.785</span></span></code></pre></div>
-<hr>
+<span><span class="fu">cli</span><span class="fu">::</span><span class="fu"><a href="https://cli.r-lib.org/reference/cli_alert.html" class="external-link">cli_alert_success</a></span><span class="op">(</span><span class="st">"C-index: {round(c_index, 4)}"</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="art-custom-kernels-the-grid_kernel-way">🎨 Custom Kernels: The grid_kernel Way<a class="anchor" aria-label="anchor" href="#art-custom-kernels-the-grid_kernel-way"></a>
+</h2>
+<p>Forget complex function factories. With FastSurvivalSVM, you define the math, and grid_kernel() handles the rest.</p>
+<div class="section level3">
+<h3 id="id_1-define-the-math">1. Define the Math<a class="anchor" aria-label="anchor" href="#id_1-define-the-math"></a>
+</h3>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># Example: A Wavelet Kernel</span></span>
+<span><span class="va">my_wavelet</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span>, <span class="va">A</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">u</span> <span class="op">&lt;-</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="op">-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span><span class="op">)</span> <span class="op">/</span> <span class="va">A</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/prod.html" class="external-link">prod</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">cos</a></span><span class="op">(</span><span class="fl">1.75</span> <span class="op">*</span> <span class="va">u</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> <span class="va">u</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">}</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="id_2-instantiate-and-fit">2. Instantiate and Fit<a class="anchor" aria-label="anchor" href="#id_2-instantiate-and-fit"></a>
+</h3>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># Create a specific instance with A = 0.5</span></span>
+<span><span class="va">wav_instance</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/grid_kernel.html">grid_kernel</a></span><span class="op">(</span><span class="va">my_wavelet</span>, A <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">fit_custom</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/fastsvm.html">fastsvm</a></span><span class="op">(</span></span>
+<span>  data      <span class="op">=</span> <span class="va">df</span>,</span>
+<span>  time_col  <span class="op">=</span> <span class="st">"tempo"</span>,</span>
+<span>  delta_col <span class="op">=</span> <span class="st">"cens"</span>,</span>
+<span>  kernel    <span class="op">=</span> <span class="va">wav_instance</span>,</span>
+<span>  alpha     <span class="op">=</span> <span class="fl">1</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+</div>
+</div>
+<div class="section level2">
+<h2 id="control_knobs-hyperparameter-tuning">🎛️ Hyperparameter Tuning<a class="anchor" aria-label="anchor" href="#control_knobs-hyperparameter-tuning"></a>
+</h2>
+<p>The package offers a robust tuning engine that supports Hybrid Parallelism: it uses Python threads for native kernels and R background processes for custom kernels simultaneously.</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># Define the Kernel Mix (Structure)</span></span>
+<span><span class="va">kernel_mix</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  rbf_std    <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>kernel <span class="op">=</span> <span class="st">"rbf"</span>, rank_ratio <span class="op">=</span> <span class="fl">0</span><span class="op">)</span>,</span>
+<span>  wavelet_ok <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>rank_ratio <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Define Parameter Grids</span></span>
+<span><span class="va">param_grids</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  <span class="co"># Native: Tune gamma and alpha</span></span>
+<span>  rbf_std <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    gamma <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.01</span>, <span class="fl">0.1</span><span class="op">)</span>,</span>
+<span>    alpha <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span></span>
+<span>  <span class="co"># Custom: Tune 'A' (via grid_kernel) and alpha</span></span>
+<span>  wavelet_ok <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    kernel <span class="op">=</span> <span class="fu"><a href="reference/grid_kernel.html">grid_kernel</a></span><span class="op">(</span><span class="va">my_wavelet</span>, A <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.5</span>, <span class="fl">1.0</span>, <span class="fl">2.0</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>    alpha  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0.1</span>, <span class="fl">1</span><span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Run Hybrid Tuning</span></span>
+<span><span class="va">tune_res</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/tune_random_machines.html">tune_random_machines</a></span><span class="op">(</span></span>
+<span>  data        <span class="op">=</span> <span class="va">df</span>,</span>
+<span>  time_col    <span class="op">=</span> <span class="st">"tempo"</span>,</span>
+<span>  delta_col   <span class="op">=</span> <span class="st">"cens"</span>,</span>
+<span>  kernel_mix  <span class="op">=</span> <span class="va">kernel_mix</span>,</span>
+<span>  param_grids <span class="op">=</span> <span class="va">param_grids</span>,</span>
+<span>  cv          <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>  cores       <span class="op">=</span> <span class="fu">parallel</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/parallel/detectCores.html" class="external-link">detectCores</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="fire-random-machines">🔥 Random Machines<a class="anchor" aria-label="anchor" href="#fire-random-machines"></a>
 </h2>
-<p>Random Machines is an ensemble technique that:</p>
-<ul>
-<li>reduces variance,</li>
-<li>optimizes kernel choice,</li>
-<li>assigns kernel weights through an internal holdout strategy,</li>
-<li>and aggregates predictions using weighted voting.</li>
-</ul>
-<p>Use:</p>
-<ul>
-<li>
-<code>crop</code> to eliminate weak kernels,</li>
-<li>
-<code>mtry</code> to select random feature subsets, similar to Random Forest.</li>
-</ul>
-<div class="section level3">
-<h3 id="example">Example<a class="anchor" aria-label="anchor" href="#example"></a>
-</h3>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Candidate kernels (mix strings and custom R functions)</span></span>
-<span><span class="va">kernels_list</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>  linear <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>kernel <span class="op">=</span> <span class="st">"linear"</span>, alpha <span class="op">=</span> <span class="fl">1</span><span class="op">)</span>,</span>
-<span>  rbf    <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>kernel <span class="op">=</span> <span class="st">"rbf"</span>, alpha <span class="op">=</span> <span class="fl">0.5</span>, gamma <span class="op">=</span> <span class="fl">0.1</span><span class="op">)</span>,</span>
-<span>  poly   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>kernel <span class="op">=</span> <span class="st">"poly"</span>, degree <span class="op">=</span> <span class="fl">2</span>, alpha <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
+<p>Random Machines allows you to leverage the power of multiple kernels in a single strong ensemble. It uses Bagging + Random Subspace (mtry) + Adaptive Kernel Selection.</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># 1. Prepare optimized kernels from tuning result</span></span>
+<span><span class="va">final_kernels</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/as_kernels.html">as_kernels</a></span><span class="op">(</span><span class="va">tune_res</span>, <span class="va">kernel_mix</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Run Random Machines</span></span>
+<span><span class="co"># 2. Train the Ensemble</span></span>
 <span><span class="va">ens_model</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/random_machines.html">random_machines</a></span><span class="op">(</span></span>
 <span>  data         <span class="op">=</span> <span class="va">df</span>,</span>
-<span>  newdata      <span class="op">=</span> <span class="va">df</span>,   <span class="co"># usually your test set</span></span>
+<span>  newdata      <span class="op">=</span> <span class="va">df</span>, <span class="co"># Usually a test set</span></span>
 <span>  time_col     <span class="op">=</span> <span class="st">"tempo"</span>,</span>
 <span>  delta_col    <span class="op">=</span> <span class="st">"cens"</span>,</span>
-<span>  kernels      <span class="op">=</span> <span class="va">kernels_list</span>,</span>
-<span>  B            <span class="op">=</span> <span class="fl">50</span>,</span>
-<span>  crop         <span class="op">=</span> <span class="fl">0.15</span>,</span>
-<span>  mtry         <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  cores        <span class="op">=</span> <span class="fl">4</span></span>
+<span>  kernels      <span class="op">=</span> <span class="va">final_kernels</span>,</span>
+<span>  B            <span class="op">=</span> <span class="fl">50</span>,   <span class="co"># Number of machines</span></span>
+<span>  crop         <span class="op">=</span> <span class="fl">0.10</span>, <span class="co"># Pruning threshold (drop weak kernels)</span></span>
+<span>  mtry         <span class="op">=</span> <span class="cn">NULL</span>, <span class="co"># Random feature subspace</span></span>
+<span>  cores        <span class="op">=</span> <span class="fu">parallel</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/parallel/detectCores.html" class="external-link">detectCores</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Inspect results</span></span>
+<span><span class="co"># 3. Inspect Results</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">ens_model</span><span class="op">)</span></span></code></pre></div>
-<hr>
-</div>
-</div>
-<div class="section level2">
-<h2 id="art-advanced-custom-kernels-in-r">🎨 Advanced: Custom Kernels in R<a class="anchor" aria-label="anchor" href="#art-advanced-custom-kernels-in-r"></a>
-</h2>
-<p>Fully customize kernel functions via function factories (closures), ideal for kernels with hyperparameters.</p>
-<div class="section level3">
-<h3 id="example-wavelet-kernel">Example: Wavelet Kernel<a class="anchor" aria-label="anchor" href="#example-wavelet-kernel"></a>
-</h3>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">make_wavelet</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">A</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/force.html" class="external-link">force</a></span><span class="op">(</span><span class="va">A</span><span class="op">)</span></span>
-<span>  <span class="kw">function</span><span class="op">(</span><span class="va">x</span>, <span class="va">z</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="va">x</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span>
-<span>    <span class="va">z</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">z</span><span class="op">)</span></span>
-<span>    <span class="va">u</span> <span class="op">&lt;-</span> <span class="op">(</span><span class="va">x</span> <span class="op">-</span> <span class="va">z</span><span class="op">)</span> <span class="op">/</span> <span class="va">A</span></span>
-<span>    <span class="fu"><a href="https://rdrr.io/r/base/prod.html" class="external-link">prod</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Trig.html" class="external-link">cos</a></span><span class="op">(</span><span class="fl">1.75</span> <span class="op">*</span> <span class="va">u</span><span class="op">)</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html" class="external-link">exp</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> <span class="va">u</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="op">}</span></span>
-<span><span class="op">}</span></span>
-<span></span>
-<span><span class="co"># Use custom kernel</span></span>
-<span><span class="va">fit_wav</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/fastsvm.html">fastsvm</a></span><span class="op">(</span></span>
-<span>  data      <span class="op">=</span> <span class="va">df</span>,</span>
-<span>  time_col  <span class="op">=</span> <span class="st">"tempo"</span>,</span>
-<span>  delta_col <span class="op">=</span> <span class="st">"cens"</span>,</span>
-<span>  kernel    <span class="op">=</span> <span class="fu">make_wavelet</span><span class="op">(</span>A <span class="op">=</span> <span class="fl">1.5</span><span class="op">)</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-<hr>
-</div>
 </div>
 <div class="section level2">
 <h2 id="books-references">📚 References<a class="anchor" aria-label="anchor" href="#books-references"></a>
 </h2>
-<ul>
-<li>
-<strong>Pölsterl, S. et al. (2016)</strong>.<br><em>An Efficient Training Algorithm for Kernel Survival Support Vector Machines.</em><br>
-arXiv:1611.07054.</li>
-</ul>
-<hr>
+<p>Pölsterl, S. et al. (2016).</p>
+<p>An Efficient Training Algorithm for Kernel Survival Support Vector Machines. arXiv:1611.07054.</p>
 </div>
 <div class="section level2">
 <h2 id="page_facing_up-license">📄 License<a class="anchor" aria-label="anchor" href="#page_facing_up-license"></a>

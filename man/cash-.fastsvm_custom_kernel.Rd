@@ -7,11 +7,10 @@
 \method{$}{fastsvm_custom_kernel}(x, name)
 }
 \arguments{
-\item{x}{A custom kernel function with class \code{"fastsvm_custom_kernel"}.}
+\item{x}{A custom kernel object.}
 
-\item{name}{The name of the parameter to extract (e.g., "a", "gamma").}
+\item{name}{The name of the parameter to access.}
 }
 \description{
-Allows accessing hyperparameters of a custom kernel object using the \code{$} operator.
-For example, if \code{k} is a kernel created with \code{a=1}, \code{k$a} returns 1.
+Accessor for Custom Kernel Parameters
 }

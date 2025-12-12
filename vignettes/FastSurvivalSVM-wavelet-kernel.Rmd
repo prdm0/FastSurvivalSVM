@@ -19,44 +19,44 @@ knitr::opts_chunk$set(
 )
 ```
 
-# Introduction
+## Introduction
 
-The **FastSurvivalSVM** package provides an R interface to the Python class  
-[`FastKernelSurvivalSVM`](https://scikit-survival.readthedocs.io/en/stable/api/generated/sksurv.svm.FastKernelSurvivalSVM.html),  
-implemented in the *scikit-survival* library.
+The FastSurvivalSVM package provides an efficient R interface to the Python class
+FastKernelSurvivalSVM from the scikit-survival library.
 
-In addition to supporting built-in kernels such as `"rbf"`, `"poly"`, and `"sigmoid"`,  
-the package allows R users to define **fully custom kernel functions**.
+A powerful feature of this package is the ability to define fully custom kernel
+functions in R. Previously, this required complex programming patterns (function
+factories and closures). Now, with the helper function `grid_kernel()`, defining
+and using a custom kernel is straightforward.
 
 This vignette demonstrates:
 
-- How to construct custom kernels in R  
-- How to use them within `fast_kernel_surv_svm_fit()`  
-- How to fit models using the **wavelet kernel** from the article *SVM Wavelet (Ará et al., 2016)*  
-- How to extract predictions, C-index, coefficients, and hyperparameters  
+- How to define a custom kernel using simple R syntax.
+- How to instantiate a specific kernel version using `grid_kernel()`.
+- How to fit a model using the wavelet kernel (Ará et al., 2016).
+- How to extract predictions, C-index, coefficients, and hyperparameters.
 
----
+## Data Example
 
-# Data Example
+We begin by generating a synthetic survival dataset with nonlinear relationships
+to test the kernel's capability.
 
 ```{r}
-# remotes::install_github("prdm0/FastSurvivalSVM", force = T)
-
 library(FastSurvivalSVM)
 
+# Function to generate synthetic survival data
 data_generation <- function(n, prop_cen) {
-    # 3 covariaveis
     x1 <- rnorm(n, 1, 1)
     x2 <- rnorm(n, 2, 2)
     x3 <- rexp(n)
-    # parâmetros da Weibull
+    
     xbeta <- x1 * log(abs(x2)) + 2 * sin(x3 - x2)^2
     shape <- 2
     scale <- 5
-    # tempos verdadeiros (sem censura)
+    
     u <- runif(n, 0, 1)
     time_t <- ((-log(1 - u))^(1 / shape)) * scale * exp(-xbeta)
-    # selecionar quem será censurado e gerar os tempos
+    
     ind_cens <- sample(1:n, n * prop_cen, replace = FALSE)
     time_gerado <- time_t
     time_gerado[ind_cens] <- runif(
@@ -64,134 +64,100 @@ data_generation <- function(n, prop_cen) {
         min(time_t),
         time_t[ind_cens]
     )
-    # criando a indicadora de falha
+    
     cens <- rep(1, n)
     cens[ind_cens] <- 0
 
-    dados_g <- data.frame(
+    data.frame(
         tempo = time_gerado,
-        cens = cens,
-        x1 = x1,
-        x2 = x2,
-        x3 = x3
+        cens  = cens,
+        x1    = x1,
+        x2    = x2,
+        x3    = x3
     )
-    return(dados_g)
 }
 
 set.seed(123)
-
 df <- data_generation(n = 300L, prop_cen = 0.1)
 
 head(df)
 ```
 
----
+## Wavelet Kernel Implementation
 
-# Wavelet Kernel from the Literature
+The wavelet kernel described in Ará et al. (2016) uses the following mother
+function:
 
-The wavelet kernel used in Ará et al. (2016) is based on the wavelet mother function:
+$$
+h(u) = \cos(1.75u) e^{-u^2 / 2}
+$$
 
-\[
-h(u) = \cos(1.75\,u)\,e^{-u^2/2}.
-\]
+And the kernel is defined as the product over covariates:
 
-The kernel is:
+$$
+K(x, z) = \prod_{k=1}^p h\left( \frac{x_k - z_k}{A} \right)
+$$
 
-\[
-K(x,z) = \prod_{k=1}^p h\!\left(\frac{x_k - z_k}{A}\right).
-\]
-
----
-
-## Wavelet mother function
+### 1. Defining the Kernel Function
 
 ```{r}
-wavelet_mother <- function(u) {
-  cos(1.75 * u) * exp(-0.5 * u^2)
-}
-```
-
-## Wavelet kernel
-
-```{r}
-wavelet_kernel <- function(x, z, A = 1) {
+wavelet_kernel_fn <- function(x, z, A = 1) {
   x <- as.numeric(x)
   z <- as.numeric(z)
-  stopifnot(length(x) == length(z))
-
   u <- (x - z) / A
-  prod(wavelet_mother(u))
+  prod(cos(1.75 * u) * exp(-0.5 * u^2))
 }
 ```
 
-## Kernel factory
+### 2. Instantiating the Kernel
 
 ```{r}
-make_wavelet_kernel <- function(A = 1) {
-  force(A)
-  function(x, z) wavelet_kernel(x, z, A = A)
-}
+my_wavelet <- grid_kernel(wavelet_kernel_fn, A = 0.5)
+class(my_wavelet)
 ```
 
----
-
-# Fitting the model
+## Fitting the Model
 
 ```{r}
 fit_wavelet <- fastsvm(
-  data       = df,
-  time_col   = "tempo",
-  delta_col  = "cens",
-  kernel     = make_wavelet_kernel(A = 0.5),
-  alpha      = 1,
-  rank_ratio = 0,
+  data          = df,
+  time_col      = "tempo",
+  delta_col     = "cens",
+  kernel        = my_wavelet,
+  alpha         = 1,
+  rank_ratio    = 0,
   fit_intercept = FALSE
 )
 ```
 
----
-
-# Predictions
+## Predictions
 
 ```{r}
 preds <- predict(fit_wavelet, df)
 head(preds)
 ```
 
----
-
-# Concordance Index
+## Concordance Index (C-index)
 
 ```{r}
-score(fit_wavelet, df)
+c_index <- score(fit_wavelet, df)
+cat(sprintf("C-index on training data: %.4f\n", c_index))
 ```
 
----
-
-# Summary
+## Model Summary
 
 ```{r}
 summary(fit_wavelet)
 ```
 
----
-
-# Extracting coefficients and parameters
+## Extracting Coefficients and Parameters
 
 ```{r}
-coef(fit_wavelet)
+head(coef(fit_wavelet))
 get_params_fastsvm(fit_wavelet)
 ```
 
----
+## Conclusion
 
-# Conclusion
-
-This vignette demonstrated how to:
-
-- Implement custom kernels in R  
-- Use the wavelet kernel with FastSurvivalSVM  
-- Fit, predict, compute the C-index  
-- Extract coefficients and hyperparameters  
-
-The package enables flexible experimentation with kernel survival SVMs directly from R.
+This vignette demonstrated the streamlined workflow for custom kernels in
+FastSurvivalSVM.

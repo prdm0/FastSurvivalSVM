@@ -19,49 +19,43 @@ tune_fastsvm(
 \arguments{
 \item{data}{Training data frame.}
 
-\item{time_col}{Time column name.}
+\item{time_col}{Name of the column containing survival times.}
 
-\item{delta_col}{Event column name.}
+\item{delta_col}{Name of the column containing the event indicator (1=event, 0=censored).}
 
 \item{param_grid}{A named list (or list of lists) of parameters to tune.
-Example: \code{list(alpha = c(0.1, 1), rank_ratio = c(0, 1))}.}
+\itemize{
+  \item For **Standard Kernels**: Provide vectors of values.
+        Example: \code{list(kernel="rbf", gamma=c(0.1, 1))}
+  \item For **Custom Kernels**: Use \code{\link{grid_kernel}} to generate the kernel list.
+        Example: \code{list(kernel=grid_kernel(my_func, A=1:3), alpha=c(0.1, 1))}
+}}
 
-\item{cv}{Number of folds (default 5).}
+\item{cv}{Number of cross-validation folds (default 5).}
 
-\item{cores}{Number of parallel cores (default: \code{parallel::detectCores()}).}
+\item{cores}{Number of cores to use (defaults to detected cores).}
 
 \item{verbose}{Verbosity level (0 or 1).}
 
-\item{refit}{Logical. If \code{TRUE}, refit model with best params on full data.}
+\item{refit}{Logical. If \code{TRUE}, refits the model with the best found parameters on the full dataset.}
 
-\item{...}{Additional fixed parameters passed to all estimators.}
+\item{...}{Additional arguments passed directly to the estimator (e.g., \code{rank_ratio}, \code{max_iter}).}
 }
 \value{
-An object of class \code{"fastsvm_grid"} containing:
-  \itemize{
-    \item \code{best_params}: A named list of optimal parameters.
-    \item \code{best_score}: The best mean cross-validated C-index.
-    \item \code{cv_results}: A data frame summarizing the search history.
-    \item \code{best_estimator}: The fitted model object (if \code{refit=TRUE}).
-  }
+An object of class \code{"fastsvm_grid"} containing the best parameters, score, and full CV results.
 }
 \description{
-Executes a grid search to optimize hyperparameters for a single kernel configuration.
-Uses cross-validation to evaluate the C-index.
+Executes a grid search with cross-validation to optimize hyperparameters for a
+single kernel configuration.
 }
 \section{Parallelization Strategy}{
 
-The \code{cores} argument controls how computation is distributed:
+The \code{cores} argument controls the parallel backend:
 \itemize{
-  \item \strong{Standard Kernels ("rbf", "linear", etc.):} If the kernel is a string,
-        the function uses Python's `GridSearchCV` native parallelism (via `joblib`).
-        This is extremely fast and efficient.
-        
-  \item \strong{Custom R Kernels:} If the kernel is an R function, `scikit-learn`
-        cannot parallelize natively (pickle error). In this case, the function
-        automatically detects it and uses the \pkg{mirai} package to distribute
-        grid candidates across parallel R workers. Each worker runs cross-validation
-        for one candidate serially.
+  \item \strong{Standard Kernels} (strings like "rbf", "linear"): Uses Python's
+        \code{joblib} (via scikit-learn) for efficient multi-threading.
+  \item \strong{Custom R Kernels} (created via \code{\link{grid_kernel}}): Uses
+        the \pkg{mirai} package to distribute candidates across R background processes.
 }
 }
 
@@ -69,62 +63,61 @@ The \code{cores} argument controls how computation is distributed:
 \dontrun{
 if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly = TRUE)) {
   library(FastSurvivalSVM)
-  
-  # --- Data Generation ---
   set.seed(42)
+
+  # --- 1. Prepare Data ---
+  # Generating synthetic survival data
   df <- data_generation(n = 200, prop_cen = 0.3)
 
   # =========================================================================
-  # EXAMPLE 1: Standard Kernel (RBF) - Regression Mode (rank_ratio=0)
+  # EXAMPLE A: Tuning a Standard Kernel (RBF)
   # =========================================================================
-  # We optimize 'alpha' and 'gamma' using a grid of 3 values each.
-  
+  # We want to tune 'alpha' (regularization) and 'gamma' (kernel width).
+  # rank_ratio = 0 implies we are optimizing for Regression (time), not Ranking.
+
   grid_rbf <- list(
     kernel = "rbf",
-    rank_ratio = 0, # Regression on time
-    alpha  = c(0.01, 0.1, 1),
-    gamma  = c(0.001, 0.01, 0.1)
+    rank_ratio = 0.0,
+    alpha  = c(0.01, 0.1, 1.0),
+    gamma  = c(0.01, 0.1, 1.0)
   )
-  
+
+  # Automatically uses Scikit-learn parallelism (Python threads)
   res_rbf <- tune_fastsvm(
-    data = df, 
+    data = df,
     time_col = "tempo", delta_col = "cens",
     param_grid = grid_rbf,
-    cv = 3, 
-    cores = 2, # Passed to Python's joblib
+    cv = 3,
+    cores = parallel::detectCores(),
     verbose = 1
   )
   print(res_rbf)
 
   # =========================================================================
-  # EXAMPLE 2: Custom Kernel in R - Regression Mode
+  # EXAMPLE B: Tuning a Custom R Kernel (Using grid_kernel)
   # =========================================================================
-  
-  # 1. Define a Kernel Factory (e.g., simple Sum-Product kernel)
-  make_sumprod <- function(bias = 0) { 
-    force(bias)
-    function(x, z) {
-      prod(as.numeric(x) * as.numeric(z)) + bias
-    }
+
+  # 1. Define the kernel function (Simple Sum-Product + Bias)
+  my_sumprod <- function(x, z, bias) {
+     prod(as.numeric(x) * as.numeric(z)) + bias
   }
-  
-  # 2. Create variants to tune the 'bias' parameter (3 values)
-  k_variants <- create_kernel_variants(make_sumprod, bias = c(0, 1, 5))
-  
-  # 3. Define grid (Tune kernel variant and regularization)
+
+  # 2. Define the grid
+  #    - 'kernel': use grid_kernel() to vary 'bias' (returns a list of functions)
+  #    - 'alpha': standard SVM parameter
   grid_custom <- list(
-    kernel = k_variants,   
-    rank_ratio = 0, # Regression on time
-    alpha  = c(0.1, 1, 10)     
+    kernel = grid_kernel(my_sumprod, bias = c(0, 1, 5)),
+    rank_ratio = 0.0,
+    alpha  = c(0.1, 1.0)
   )
-  
-  # 4. Tune (Automatically detects custom kernel -> switches to mirai)
+
+  # 3. Tune (Automatically switches to mirai for R parallelism)
   res_custom <- tune_fastsvm(
-    data = df, 
+    data = df,
     time_col = "tempo", delta_col = "cens",
     param_grid = grid_custom,
-    cv = 3, 
-    cores = 2, # Starts 2 background R daemons
+    cv = 3,
+    cores = parallel::detectCores(),
     verbose = 1
   )
   print(res_custom)

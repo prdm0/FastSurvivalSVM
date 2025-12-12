@@ -7,9 +7,9 @@
 \method{print}{fastsvm_grid}(x, ...)
 }
 \arguments{
-\item{x}{An object of class \code{"fastsvm_grid"}.}
+\item{x}{Grid search result object.}
 
-\item{...}{Additional arguments passed to methods.}
+\item{...}{Additional arguments.}
 }
 \description{
 Print method for single tuning result

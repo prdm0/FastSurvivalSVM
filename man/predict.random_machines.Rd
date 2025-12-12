@@ -9,10 +9,10 @@
 \arguments{
 \item{object}{An object of class \code{"random_machines"}.}
 
-\item{newdata}{A \code{data.frame} with covariates compatible with training data.}
+\item{newdata}{Data frame with new observations.}
 
-\item{...}{Not used, for compatibility.}
+\item{...}{Additional arguments.}
 }
 \description{
-Uses serialized models (Python pickle) to compute predictions for new data.
+Predict method for Random Machines
 }

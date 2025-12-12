@@ -9,7 +9,7 @@
 \arguments{
 \item{x}{An object of class \code{"random_machines"}.}
 
-\item{...}{Not used.}
+\item{...}{Additional arguments.}
 }
 \description{
 Print method for random_machines

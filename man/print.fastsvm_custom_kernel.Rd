@@ -7,9 +7,9 @@
 \method{print}{fastsvm_custom_kernel}(x, ...)
 }
 \arguments{
-\item{x}{An object of class \code{"fastsvm_custom_kernel"}.}
+\item{x}{A custom kernel object.}
 
-\item{...}{Additional arguments passed to methods.}
+\item{...}{Additional arguments.}
 }
 \description{
 Print method for custom kernels

@@ -10,176 +10,108 @@ vignette: >
 ```{r, include=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
-  comment  = "#>"
+  comment  = "#>",
+  eval     = TRUE
 )
 ```
 
-# Introduction
+# Introduction 🚀
 
-This vignette presents a complete end-to-end workflow for building **Random Survival Machines**, an ensemble of Kernel Survival SVM base learners implemented in the `FastSurvivalSVM` package.
+This vignette presents a **fully executable**, end-to-end workflow for building  
+**Random Survival Machines** with the `FastSurvivalSVM` package.
 
-The workflow is intentionally designed to be linear and readable:
+To guarantee that the vignette **runs during rendering** (CRAN / pkgdown / local),
+we deliberately use:
 
-1. Prepare a synthetic survival dataset.  
-2. Define standard and custom kernel families.  
-3. Tune all kernel types in a unified hybrid search.  
-4. Convert tuning results into a ready-to-use kernel list with `as_kernels()`.  
-5. Train a Random Machines ensemble with `random_machines()`.  
-6. Evaluate performance on an independent test set.
+- small sample size,
+- small tuning grids,
+- `cores = 1` everywhere.
 
-The emphasis is on a **smooth bridge** between tuning and training, avoiding any manual extraction of hyperparameters.
+The goal is **correctness and clarity**, not maximum performance.
 
-# 1. Data Preparation
-
-We begin by generating a nonlinear synthetic survival dataset with right censoring.  
-The data are split into:
-
-- a **training set**, used for tuning and ensemble training;  
-- a **test set**, held out for final evaluation.
+# 1. Data Preparation 📦
 
 ```{r}
 library(FastSurvivalSVM)
 
 set.seed(42)
 
-# Generate 150 samples with 20% censoring
-df <- data_generation(n = 150, prop_cen = 0.20)
+df <- data_generation(n = 120, prop_cen = 0.20)
 
-# Split: 100 for Train, 50 for Test
-train_idx <- sample(seq_len(nrow(df)), 100)
+train_idx <- sample(seq_len(nrow(df)), 80)
 train_df  <- df[train_idx, ]
 test_df   <- df[-train_idx, ]
 
 head(train_df)
 ```
 
-# 2. Defining Custom Kernels
+# 2. Custom Kernels 🧠
 
-`FastSurvivalSVM` allows you to combine **standard Scikit-learn kernels** (e.g. `"rbf"`, `"linear"`) with **fully custom R kernels**.  
-To tune these custom kernels, we use the **Function Factory** pattern: each factory returns a valid kernel function \(K(x, z)\) with specific hyperparameters “baked in”.
-
-## 2.1 Wavelet Kernel Factory
-
-We consider a wavelet-like kernel of the form
-
-\[
-K(x,z) = \prod_i \cos\bigl(1.75\,u_i\bigr)\,
-\exp\Bigl(-\tfrac{1}{2} u_i^2\Bigr),
-\quad
-u_i = \frac{x_i - z_i}{A},
-\]
-
-where \(A > 0\) controls the kernel scale.
+## 2.1 Wavelet Kernel 🌊
 
 ```{r}
-make_wavelet <- function(A = 1) {
-  force(A) # ensure A is captured in the closure
-  function(x, z) {
-    u <- (as.numeric(x) - as.numeric(z)) / A
-    prod(cos(1.75 * u) * exp(-0.5 * u^2))
-  }
+wavelet_kernel <- function(x, z, A) {
+  u <- (as.numeric(x) - as.numeric(z)) / A
+  prod(cos(1.75 * u) * exp(-0.5 * u^2))
 }
 ```
 
-## 2.2 Polynomial Kernel Factory (Manual Implementation)
-
-A classic polynomial kernel can be written as
-
-\[
-K(x,z) = \bigl(\langle x, z \rangle + \text{coef0}\bigr)^{\text{degree}}.
-\]
-
-Below, we implement this kernel manually in R:
+## 2.2 Polynomial Kernel 🧮
 
 ```{r}
-make_poly_custom <- function(degree = 2, coef0 = 1) {
-  force(degree); force(coef0)
-  function(x, z) {
-    sum(as.numeric(x) * as.numeric(z)) + coef0
-  }^degree
+poly_kernel <- function(x, z, degree, coef0) {
+  (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
 }
 ```
 
-# 3. Configuring Kernel Mix and Grids
+# 3. Tuning a Single SVM with tune_fastsvm() 🔧
 
-We now configure a mix of **four kernel types**:
+```{r}
+grid_rbf <- list(
+  kernel     = "rbf",
+  rank_ratio = 0,
+  alpha      = c(0.1, 1),
+  gamma      = c(0.01, 0.1)
+)
 
-- Linear (standard)
-- RBF (standard)
-- Wavelet (custom)
-- Polynomial (custom)
+rbf_tune <- tune_fastsvm(
+  data       = train_df,
+  time_col   = "tempo",
+  delta_col  = "cens",
+  param_grid = grid_rbf,
+  cv         = 3,
+  cores      = 1,
+  verbose    = 0
+)
 
-All kernels are set to **regression mode** via `rank_ratio = 0.0`, targeting the survival time directly.
+rbf_tune
+```
 
-## 3.1 Base Configuration (Kernel Mix)
-
-The base configuration contains the **non-tuned** settings for each kernel family.  
-Custom kernels will receive their specific kernel functions and tuned hyperparameters during the tuning stage.
+# 4. Kernel Mix and Parameter Grids 🧩
 
 ```{r}
 kernel_mix <- list(
-  # --- Standard kernels ---
-  linear_std = list(kernel = "linear", rank_ratio = 0.0),
-  rbf_std    = list(kernel = "rbf",    rank_ratio = 0.0),
-
-  # --- Custom kernels ---
-  # We omit the 'kernel' function here; it will be chosen via tuning.
-  wavelet_ok = list(rank_ratio = 0.0),
-  poly_ok    = list(rank_ratio = 0.0)
+  linear_std = list(kernel = "linear", rank_ratio = 0),
+  rbf_std    = list(kernel = "rbf",    rank_ratio = 0),
+  wavelet_k  = list(rank_ratio = 0),
+  poly_k     = list(rank_ratio = 0)
 )
-```
-
-## 3.2 Parameter Grids
-
-Next, we specify **search grids** for each kernel type.  
-For custom kernels, we create multiple kernel variants using the factories above, and tune both the kernel instance and the regularization parameter `alpha`.
-
-```{r}
-# Create 3 variants for each custom kernel
-wav_vars  <- create_kernel_variants(make_wavelet, A = c(0.5, 1.0, 2.0))
-poly_vars <- create_kernel_variants(make_poly_custom, degree = c(2, 3, 4), coef0 = 1)
 
 param_grids <- list(
-  # Linear: tune regularization (3 values)
-  linear_std = list(
-    alpha = c(0.01, 0.1, 1)
+  linear_std = list(alpha = c(0.1, 1)),
+  rbf_std    = list(alpha = c(0.1, 1), gamma = c(0.01)),
+  wavelet_k  = list(
+    kernel = grid_kernel(wavelet_kernel, A = c(1)),
+    alpha  = c(0.1, 1)
   ),
-
-  # RBF: tune regularization (3 values) AND gamma (3 values)
-  rbf_std = list(
-    alpha = c(0.01, 0.1, 1),
-    gamma = c(0.001, 0.01, 0.1)
-  ),
-
-  # Wavelet: tune the kernel function (3 variants) AND regularization (3 values)
-  wavelet_ok = list(
-    kernel = wav_vars,
-    alpha  = c(0.01, 0.1, 1)
-  ),
-
-  # Polynomial: tune the kernel function (3 variants) AND regularization (3 values)
-  poly_ok = list(
-    kernel = poly_vars,
-    alpha  = c(0.01, 0.1, 1)
+  poly_k = list(
+    kernel = grid_kernel(poly_kernel, degree = c(2), coef0 = 1),
+    alpha  = c(0.1, 1)
   )
 )
 ```
 
-# 4. Step 1 – Hybrid Tuning
-
-We now perform a **hybrid grid search** over all kernel types using `tune_random_machines()`.
-
-Key aspects:
-
-- **Hybrid parallelism**:  
-  - Standard kernels leverage Python-level parallelism (threads) via scikit-survival.  
-  - Custom R kernels can be distributed over R workers (e.g. via `mirai`) when configured in the package.
-
-- **All cores**:  
-  We set `cores = parallel::detectCores()` to take advantage of the available hardware.
-
-- **3-fold cross-validation**:  
-  A moderate choice that balances stability and speed for this vignette.
+# 5. Joint Tuning with tune_random_machines() 🔁
 
 ```{r}
 tune_res <- tune_random_machines(
@@ -189,96 +121,54 @@ tune_res <- tune_random_machines(
   kernel_mix  = kernel_mix,
   param_grids = param_grids,
   cv          = 3,
-  cores       = parallel::detectCores(),
-  verbose     = 1
+  cores       = 1,
+  verbose     = 0
 )
 
 tune_res
 ```
 
-The object `tune_res` contains, for each kernel family, the best-found combination of hyperparameters and its associated performance.
-
-# 5. Step 2 – Bridging Tuning and Training with `as_kernels()`
-
-Instead of manually inspecting `tune_res` to discover which `alpha`, `gamma` or kernel function performed best, we use the helper **bridge function** `as_kernels()`.
-
-This function:
-
-- Takes the tuning results,  
-- Merges the best hyperparameters back into the original `kernel_mix`,  
-- Returns a **fully configured list** ready for `random_machines()`.
+# 6. Bridging with as_kernels() 🌉
 
 ```{r}
 final_kernels <- as_kernels(tune_res, kernel_mix)
-
-# Example: inspect the optimized Wavelet configuration
-cat("Optimized Wavelet configuration:\n")
-final_kernels$wavelet_ok
+final_kernels
 ```
 
-At this point, `final_kernels` contains the tuned settings for all kernel types (linear, RBF, wavelet, polynomial), with no need to rewrite parameters by hand.
-
-# 6. Step 3 – Training Random Machines
-
-We now train the **Random Survival Machines** ensemble using `random_machines()`.
-
-Main arguments used:
-
-- `kernels = final_kernels`: tuned kernel configurations from the previous step.  
-- `B = 10`: number of bootstrap replicas (trees). For real applications, consider larger values such as 50 or 100.  
-- `mtry = 2`: random subspace size. Each learner sees a random subset of 2 covariates, increasing diversity.  
-- `crop = 0.1`: pruning threshold. Kernel families that receive a final weight below 10% in the internal holdout are removed from the ensemble.
+# 7. Training Random Machines 🚜
 
 ```{r}
 rm_model <- random_machines(
   data         = train_df,
-  newdata      = test_df,   # Predict on test set immediately
+  newdata      = test_df,
   time_col     = "tempo",
   delta_col    = "cens",
   kernels      = final_kernels,
-  B            = 10,        # low B for vignette speed; increase in practice
-  mtry         = 2,         # feature subsampling
-  crop         = 0.1,       # drop weak kernels
-  cores        = parallel::detectCores(),
-  .progress    = TRUE
+  B            = 5,
+  mtry         = 2,
+  crop         = 0.1,
+  prop_holdout = 0.20,
+  cores        = 1,
+  .progress    = FALSE
 )
 
 rm_model
 ```
 
-The printed summary describes:
-
-- How many models were successfully trained,  
-- The distribution of kernel usage and their final weights,  
-- The out-of-bag performance measure.
-
-This gives an immediate sense of which kernel families contribute most to the ensemble.
-
-# 7. Final Evaluation on Test Data
-
-Finally, we evaluate the tuned and pruned ensemble on the independent test set.
+# 8. Final Evaluation 🎯
 
 ```{r}
-library(cli)
-
 c_index <- score(rm_model, test_df)
-
-cli::cli_alert_success(
-  "Final C-Index on Test Data: {.val {round(c_index, 4)}}"
-)
+cat(sprintf("Final C-index on test data: %.4f\n", c_index))
 ```
 
-The **C-index** provides a standard measure of predictive discrimination for survival models, with values closer to 1 indicating better ranking of survival times.
+# Conclusion 🎉
 
-# Conclusion
+This vignette intentionally uses **small grids and datasets** so that:
 
-In this vignette, we demonstrated a complete pipeline for **Random Survival Machines** using `FastSurvivalSVM`:
+- every chunk is executed,
+- the vignette renders reliably,
+- users can clearly see the *full workflow*.
 
-1. Generate and split survival data.  
-2. Define a rich kernel family, including custom wavelet and polynomial kernels.  
-3. Tune all kernels jointly with `tune_random_machines()`.  
-4. Convert tuning results into a ready-to-use kernel configuration via `as_kernels()`.  
-5. Train a Random Machines ensemble with `random_machines()`, using `mtry` for feature subsampling and `crop` for pruning.  
-6. Evaluate the final model on an independent test set.
-
-The key design goal is to keep the workflow **simple and expressive**: tune once, bridge with `as_kernels()`, and train robust ensembles without manual parameter bookkeeping.
+For real experiments, simply increase:
+`n`, tuning grids, `B`, and `cores`.

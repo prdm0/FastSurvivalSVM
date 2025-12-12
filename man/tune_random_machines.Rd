@@ -23,9 +23,9 @@ tune_random_machines(
 
 \item{delta_col}{Event column name.}
 
-\item{kernel_mix}{Named list of base kernel configurations (e.g. \code{list(rbf=list(kernel="rbf"))}).}
+\item{kernel_mix}{A named list of base configurations.}
 
-\item{param_grids}{Named list of parameter grids corresponding to \code{kernel_mix}.}
+\item{param_grids}{A named list of grids.}
 
 \item{cv}{Number of folds (default 5).}
 
@@ -33,114 +33,97 @@ tune_random_machines(
 
 \item{verbose}{Verbosity level (0 or 1).}
 
-\item{...}{Additional fixed parameters passed to all estimators.}
+\item{...}{Additional fixed parameters.}
 }
 \value{
 An object of class \code{"random_machines_tune"}.
 }
 \description{
 Orchestrates hyperparameter tuning for multiple kernels simultaneously.
-This function allows mixing **native scikit-learn kernels** (string based)
-and **custom R kernels** (function based) in a single tuning session.
 }
-\section{Parallelization Details}{
-
-The \code{cores} parameter is passed down to the individual tuning function.
-\itemize{
-  \item For native kernels (strings), parallelism is handled via Scikit-Learn (efficient multithreading).
-  \item For custom kernels (R functions), parallelism is managed via \pkg{mirai} (R multiprocessing).
-}
-}
-
 \examples{
 \dontrun{
-if (reticulate::py_module_available("sksurv") && requireNamespace("mirai", quietly=TRUE)) {
+if (reticulate::py_module_available("sksurv") && requireNamespace("mirai")) {
   library(FastSurvivalSVM)
-  
   set.seed(99)
-  df <- data_generation(n = 200, prop_cen = 0.25)
+
+  # --- 1. Prepare Data ---
+  df <- data_generation(n = 300, prop_cen = 0.25)
 
   # =========================================================================
-  # Setup: Hybrid Tuning (2 Standard + 2 Custom Kernels)
-  #        Using Regression Mode (rank_ratio = 0)
+  # 2. Define Custom Kernel Functions
   # =========================================================================
-  
-  # --- A. Define Custom Kernel Factories ---
-  
-  # 1. Wavelet Kernel
-  make_wavelet <- function(A = 1) {
-    force(A)
-    function(x, z) {
-      u <- (as.numeric(x) - as.numeric(z)) / A
-      prod(cos(1.75 * u) * exp(-0.5 * u^2))
-    }
-  }
-  
-  # 2. Polynomial Custom Kernel
-  make_poly_custom <- function(degree = 2, coef0 = 1) {
-    force(degree); force(coef0)
-    function(x, z) (sum(as.numeric(x) * as.numeric(z)) + coef0)^degree
+
+  # Wavelet Kernel (Custom 1)
+  my_wavelet <- function(x, z, A) {
+    u <- (as.numeric(x) - as.numeric(z)) / A
+    prod(cos(1.75 * u) * exp(-0.5 * u^2))
   }
 
-  # --- B. Define Base Configurations (The "Mix") ---
-  # We set rank_ratio = 0 for all to use regression mode.
-  
-  mix <- list(
-    # Standard 1: RBF
-    my_rbf = list(kernel = "rbf", rank_ratio = 0),
-    
-    # Standard 2: Linear
-    my_linear = list(kernel = "linear", rank_ratio = 0),
-    
-    # Custom 1: Wavelet (kernel function comes from grid)
-    my_wavelet = list(rank_ratio = 0),
-    
-    # Custom 2: Poly (kernel function comes from grid)
-    my_poly = list(rank_ratio = 0)
+  # Polynomial Kernel (Custom 2)
+  my_poly <- function(x, z, degree, coef0) {
+    val <- sum(as.numeric(x) * as.numeric(z)) + coef0
+    val ^ degree
+  }
+
+  # =========================================================================
+  # 3. Define Kernel Structure (Regression Mode: rank_ratio = 0)
+  # =========================================================================
+  kernel_mix <- list(
+    linear_std = list(kernel = "linear", rank_ratio = 0.0),
+    rbf_std    = list(kernel = "rbf",    rank_ratio = 0.0),
+    wavelet_ok = list(rank_ratio = 0.0),
+    poly_ok    = list(rank_ratio = 0.0)
   )
 
-  # --- C. Define Grids (3 values per parameter) ---
-  
-  wav_vars  <- create_kernel_variants(make_wavelet, A = c(0.5, 1, 2))
-  poly_vars <- create_kernel_variants(make_poly_custom, degree = c(2, 3, 4), coef0 = 1)
+  # =========================================================================
+  # 4. Define Grids (4 Kernels x 4 Values per parameter)
+  # =========================================================================
 
-  grids <- list(
-    # Grid for RBF: 3 alphas, 3 gammas
-    my_rbf = list(
-      alpha = c(0.01, 0.1, 1),
-      gamma = c(0.001, 0.01, 0.1)
+  param_grids <- list(
+    # 1. Linear (Native): 4 alpha values
+    linear_std = list(
+      alpha = c(0.01, 0.1, 1.0, 10.0)
     ),
-    
-    # Grid for Linear: 3 alphas
-    my_linear = list(
-      alpha = c(0.01, 0.1, 1)
+
+    # 2. RBF (Native): 4 alpha values x 4 gamma values
+    rbf_std = list(
+      alpha = c(0.01, 0.1, 1.0, 10.0),
+      gamma = c(0.001, 0.01, 0.1, 1.0)
     ),
-    
-    # Grid for Wavelet: 3 variants, 3 alphas
-    my_wavelet = list(
-      kernel = wav_vars,
-      alpha  = c(0.01, 0.1, 1)
+
+    # 3. Wavelet (Custom): 4 variants (A) x 4 alphas
+    wavelet_ok = list(
+      kernel = grid_kernel(my_wavelet, A = c(0.5, 1.0, 1.5, 2.0)),
+      alpha  = c(0.01, 0.1, 1.0, 10.0)
     ),
-    
-    # Grid for Poly: 3 variants, 3 alphas
-    my_poly = list(
-      kernel = poly_vars,
-      alpha  = c(0.01, 0.1, 1)
+
+    # 4. Polynomial (Custom): 4 variants (degree) x 4 alphas
+    # Note: We fix coef0=1 to reduce grid explosion, but degree varies 4 times
+    poly_ok = list(
+      kernel = grid_kernel(my_poly, degree = c(1, 2, 3, 4), coef0 = 1),
+      alpha  = c(0.01, 0.1, 1.0, 10.0)
     )
   )
 
-  # --- D. Run Hybrid Tuning ---
-  tune_results <- tune_random_machines(
-    data = df,
-    time_col = "tempo", delta_col = "cens",
-    kernel_mix = mix,
-    param_grids = grids,
-    cv = 3,
-    cores = 2,
-    verbose = 1
+  # =========================================================================
+  # 5. Run Tuning (Using ALL cores)
+  # =========================================================================
+  tune_res <- tune_random_machines(
+    data        = df,
+    time_col    = "tempo",
+    delta_col   = "cens",
+    kernel_mix  = kernel_mix,
+    param_grids = param_grids,
+    cv          = 3,
+    cores       = parallel::detectCores(),
+    verbose     = 1
   )
-  
-  print(tune_results)
+
+  print(tune_res)
+
+  # 6. Bridge to Training
+  final_kernels <- as_kernels(tune_res, kernel_mix)
 }
 }
 }

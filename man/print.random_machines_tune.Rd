@@ -7,9 +7,9 @@
 \method{print}{random_machines_tune}(x, ...)
 }
 \arguments{
-\item{x}{An object of class \code{"random_machines_tune"}.}
+\item{x}{Tuning result object.}
 
-\item{...}{Additional arguments passed to methods.}
+\item{...}{Additional arguments.}
 }
 \description{
 Print method for Random Machines tuning results
