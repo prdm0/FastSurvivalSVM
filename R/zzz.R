@@ -7,7 +7,7 @@ np     <- NULL
 .onLoad <- function(libname, pkgname) {
   # Declarar as dependências Python do pacote
   reticulate::py_require(
-    packages = c("numpy", "scikit-learn", "scikit-survival", "pandas")
+    packages = c("numpy", "scikit-learn", "scikit-survival", "pandas", "optuna")
   )
   
   # Importar módulos com delay_load = TRUE

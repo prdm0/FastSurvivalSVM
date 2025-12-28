@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">FastSurvivalSVM</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.1</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.2</span>
       </span>
     </div>
 
@@ -68,6 +68,14 @@
         </td>
         <td><p>Prepare Tuned Kernels for Random Machines</p></td>
       </tr><tr><td>
+          <p><code><a href="as_kernels.random_machines_tune.html">as_kernels(<i>&lt;random_machines_tune&gt;</i>)</a></code> </p>
+        </td>
+        <td><p>Extract Best Kernels from Grid Search Results</p></td>
+      </tr><tr><td>
+          <p><code><a href="as_kernels.random_machines_tune_optuna.html">as_kernels(<i>&lt;random_machines_tune_optuna&gt;</i>)</a></code> </p>
+        </td>
+        <td><p>Extract Best Kernels from Optuna Results</p></td>
+      </tr><tr><td>
           <p><code><a href="cash-.fastsvm_custom_kernel.html">`$`(<i>&lt;fastsvm_custom_kernel&gt;</i>)</a></code> </p>
         </td>
         <td><p>Accessor for Custom Kernel Parameters</p></td>
@@ -91,6 +99,18 @@
           <p><code><a href="grid_kernel.html">grid_kernel()</a></code> </p>
         </td>
         <td><p>Create a Kernel Grid or Single Instance (Smart Wrapper)</p></td>
+      </tr><tr><td>
+          <p><code><a href="opt_cat.html">opt_cat()</a></code> </p>
+        </td>
+        <td><p>Define Categorical Parameter for Optuna Search Space</p></td>
+      </tr><tr><td>
+          <p><code><a href="opt_float.html">opt_float()</a></code> </p>
+        </td>
+        <td><p>Define Float Parameter for Optuna Search Space</p></td>
+      </tr><tr><td>
+          <p><code><a href="opt_int.html">opt_int()</a></code> </p>
+        </td>
+        <td><p>Define Integer Parameter for Optuna Search Space</p></td>
       </tr><tr><td>
           <p><code><a href="predict.fastsvm.html">predict(<i>&lt;fastsvm&gt;</i>)</a></code> </p>
         </td>
@@ -120,6 +140,10 @@
         </td>
         <td><p>Print method for Random Machines tuning results</p></td>
       </tr><tr><td>
+          <p><code><a href="print.random_machines_tune_optuna.html">print(<i>&lt;random_machines_tune_optuna&gt;</i>)</a></code> </p>
+        </td>
+        <td><p>Print method for Optuna results</p></td>
+      </tr><tr><td>
           <p><code><a href="print.summary.fastsvm.html">print(<i>&lt;summary.fastsvm&gt;</i>)</a></code> </p>
         </td>
         <td><p>Print method for summary.fastsvm objects</p></td>
@@ -148,9 +172,17 @@
         </td>
         <td><p>Single Grid Search for FastKernelSurvivalSVM</p></td>
       </tr><tr><td>
+          <p><code><a href="tune_fastsvm_optuna.html">tune_fastsvm_optuna()</a></code> </p>
+        </td>
+        <td><p>Tune FastSurvivalSVM using Optuna (Single Kernel Optimization)</p></td>
+      </tr><tr><td>
           <p><code><a href="tune_random_machines.html">tune_random_machines()</a></code> </p>
         </td>
         <td><p>Multi-Kernel Tuning for Random Machines</p></td>
+      </tr><tr><td>
+          <p><code><a href="tune_random_machines_optuna.html">tune_random_machines_optuna()</a></code> </p>
+        </td>
+        <td><p>Multi-Kernel Hyperparameter Tuning via Optuna</p></td>
       </tr></tbody></table></div>
 
   <div class="col-md-3 hidden-xs hidden-sm" id="pkgdown-sidebar">

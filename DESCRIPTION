@@ -1,7 +1,7 @@
 Package: FastSurvivalSVM
 Type: Package
 Title: Kernel Survival Support Vector Machines via 'scikit-survival'
-Version: 0.0.1
+Version: 0.0.2
 Authors@R: 
     c(
       person("Pedro Rafael", "Diniz Marinho",

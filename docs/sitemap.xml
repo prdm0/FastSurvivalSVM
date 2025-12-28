@@ -10,12 +10,15 @@
 <url><loc>/authors.html</loc></url>
 <url><loc>/index.html</loc></url>
 <url><loc>/reference/as_kernels.html</loc></url>
+<url><loc>/reference/as_kernels.random_machines_tune.html</loc></url>
+<url><loc>/reference/as_kernels.random_machines_tune_optuna.html</loc></url>
 <url><loc>/reference/cash-.fastsvm_custom_kernel.html</loc></url>
 <url><loc>/reference/coef.fastsvm.html</loc></url>
 <url><loc>/reference/create_kernel_variants.html</loc></url>
 <url><loc>/reference/data_generation.html</loc></url>
 <url><loc>/reference/dot-compute_lambdas_from_cindex.html</loc></url>
 <url><loc>/reference/dot-mk_surv_object.html</loc></url>
+<url><loc>/reference/dot-optuna_worker.html</loc></url>
 <url><loc>/reference/fast_kernel_surv_svm_fit.html</loc></url>
 <url><loc>/reference/fastsvm.html</loc></url>
 <url><loc>/reference/fastsvm_bagging.html</loc></url>
@@ -24,6 +27,9 @@
 <url><loc>/reference/grid_kernel.html</loc></url>
 <url><loc>/reference/index.html</loc></url>
 <url><loc>/reference/mc.html</loc></url>
+<url><loc>/reference/opt_cat.html</loc></url>
+<url><loc>/reference/opt_float.html</loc></url>
+<url><loc>/reference/opt_int.html</loc></url>
 <url><loc>/reference/predict.fastsvm.html</loc></url>
 <url><loc>/reference/predict.fastsvm_bag.html</loc></url>
 <url><loc>/reference/predict.fastsvm_bagging.html</loc></url>
@@ -36,6 +42,7 @@
 <url><loc>/reference/print.fastsvm_multi_grid.html</loc></url>
 <url><loc>/reference/print.random_machines.html</loc></url>
 <url><loc>/reference/print.random_machines_tune.html</loc></url>
+<url><loc>/reference/print.random_machines_tune_optuna.html</loc></url>
 <url><loc>/reference/print.summary.fastsvm.html</loc></url>
 <url><loc>/reference/random_machines.html</loc></url>
 <url><loc>/reference/score.fastsvm.html</loc></url>
@@ -47,6 +54,8 @@
 <url><loc>/reference/summary.fastsvm.html</loc></url>
 <url><loc>/reference/tune_fastsvm.html</loc></url>
 <url><loc>/reference/tune_fastsvm_all.html</loc></url>
+<url><loc>/reference/tune_fastsvm_optuna.html</loc></url>
 <url><loc>/reference/tune_random_machines.html</loc></url>
+<url><loc>/reference/tune_random_machines_optuna.html</loc></url>
 </urlset>
 
